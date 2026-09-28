@@ -16,7 +16,7 @@ from ...enums import SectionID
 from ..base_prompt import SectionTemplate
 
 SECTION_1_TEMPLATE = SectionTemplate(
-    section_id=SectionID.SECTION_1,
+    section_id=SectionID.BACKGROUND,
     name="Section 1",
     description="TODO: describe what this section covers",
     system_prompt_template="""
@@ -33,5 +33,5 @@ Guidelines:
 """,
     validation_rules=[],
     required_fields=[],
-    next_section=SectionID.SECTION_2,
+    next_section=SectionID.TARGET_ROLE,
 )

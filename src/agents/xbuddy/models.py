@@ -4,15 +4,26 @@ Study FounderBuddy's models.py to understand how these work:
 https://github.com/Victoria824/FounderBuddy/blob/main/src/agents/founder_buddy/models.py
 """
 
-import uuid
 from typing import Any
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph import MessagesState
-from pydantic import BaseModel, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
-from .enums import RouterDirective, SectionID, SectionStatus
-from .sections.base_prompt import SectionTemplate, ValidationRule
+from .enums import (
+    RequirementPriority,
+    RouterDirective,
+    SectionID,
+    SectionStatus,
+    WorkType,
+)
 
 
 class SectionContent(BaseModel):
@@ -27,6 +38,7 @@ class SectionState(BaseModel):
     content: SectionContent | None = None
     satisfaction_status: str | None = None  # satisfied, needs_improvement, or None
     status: SectionStatus = SectionStatus.PENDING
+    confirmed_summary: str | None = None
 
 
 class ContextPacket(BaseModel):
@@ -38,17 +50,54 @@ class ContextPacket(BaseModel):
     validation_rules: dict[str, Any] | None = None
 
 
-class XBuddyData(BaseModel):
-    """Domain-specific data collected from the user.
+MAX_EVIDENCE_QUOTE_CHARS = 300
 
-    TODO: Replace these fields with data relevant to your domain.
-    For example, StudentBuddy might have:
-      learning_goals: list[str]
-      current_level: str
-      available_hours_per_week: int
-      preferred_subjects: list[str]
-    """
-    pass
+class _StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")   # unknown fields (e.g. salary) fail loudly
+
+class UserProfile(_StrictModel):
+    current_role: str | None = None
+    role_history: list[str] = Field(default_factory=list)
+    years_experience: int | None = Field(None, ge=0, le=60)
+    skills: list[str] = Field(default_factory=list)
+    education: str | None = None
+
+class TargetRole(_StrictModel):
+    titles: list[str] = Field(default_factory=list)
+    location_region: str | None = None          # coarse only
+    work_type: WorkType | None = None
+    priorities: list[str] = Field(default_factory=list)
+
+class JobSource(_StrictModel):
+    label: str = Field(..., min_length=1)       # "Shopify - Backend Developer"
+    url: str | None = None
+
+class RequirementEvidence(_StrictModel):
+    source_label: str = Field(..., min_length=1)
+    quote: str = Field(..., min_length=1, max_length=MAX_EVIDENCE_QUOTE_CHARS)
+
+class JobRequirement(_StrictModel):
+    name: str = Field(..., min_length=1)
+    priority: RequirementPriority
+    evidence: list[RequirementEvidence] = Field(..., min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_derived_frequency(cls, data):
+        if isinstance(data, dict) and "frequency" in data:
+            data = {k: v for k, v in data.items() if k != "frequency"}
+        return data
+
+    @computed_field
+    @property
+    def frequency(self) -> int:
+        return len({e.source_label for e in self.evidence})
+
+class JobBuddyData(_StrictModel):
+    profile: UserProfile = Field(default_factory=UserProfile)
+    target_role: TargetRole = Field(default_factory=TargetRole)
+    job_sources: list[JobSource] = Field(default_factory=list)
+    requirements: list[JobRequirement] = Field(default_factory=list)
 
 
 class ChatAgentDecision(BaseModel):
@@ -93,38 +142,41 @@ class ChatAgentOutput(BaseModel):
         return v
 
 
-class XBuddyState(MessagesState):
-    """State for your XBuddy agent.
+class XBuddyState(MessagesState, total=False):
+    user_id: int
+    thread_id: str
+    current_section: SectionID
+    context_packet: ContextPacket | None
+    section_states: dict[str, SectionState]
+    router_directive: str
+    finished: bool
+    user_data: JobBuddyData
+    short_memory: list[BaseMessage]
+    agent_output: ChatAgentOutput | None
+    awaiting_user_input: bool
+    awaiting_satisfaction_feedback: bool
+    error_count: int
+    last_error: str | None
+    roadmap: str | None                 # renamed from final_output
+    should_generate_final_output: bool
 
-    Extends MessagesState (which provides `messages: list[BaseMessage]`).
-    Study FounderBuddyState to understand each field's role in the graph.
-    """
-    # User and conversation identification
-    user_id: int = 1
-    thread_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+def default_state() -> dict[str, Any]:
+    """Fresh defaults for a brand-new thread (identity is set by initialize_node)."""
+    return {
+        "current_section": SectionID.BACKGROUND,
+        "context_packet": None,
+        "section_states": {s.value: SectionState(section_id=s) for s in SectionID},
+        "router_directive": RouterDirective.NEXT.value,
+        "finished": False,
+        "user_data": JobBuddyData(),
+        "short_memory": [],
+        "agent_output": None,
+        "awaiting_user_input": False,
+        "awaiting_satisfaction_feedback": False,
+        "error_count": 0,
+        "last_error": None,
+        "roadmap": None,
+        "should_generate_final_output": False,
+    }
 
-    # Navigation and progress
-    current_section: SectionID = SectionID.SECTION_1
-    context_packet: ContextPacket | None = None
-    section_states: dict[str, SectionState] = Field(default_factory=dict)
-    router_directive: str = RouterDirective.NEXT
-    finished: bool = False
 
-    # Domain-specific data — TODO: customize XBuddyData above
-    user_data: XBuddyData = Field(default_factory=XBuddyData)
-
-    # Memory management
-    short_memory: list[BaseMessage] = Field(default_factory=list)
-
-    # Agent output
-    agent_output: ChatAgentOutput | None = None
-    awaiting_user_input: bool = False
-    awaiting_satisfaction_feedback: bool = False
-
-    # Error tracking
-    error_count: int = 0
-    last_error: str | None = None
-
-    # Final output — TODO: rename to match your domain
-    final_output: str | None = None
-    should_generate_final_output: bool = False

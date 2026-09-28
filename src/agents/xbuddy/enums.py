@@ -1,35 +1,37 @@
 """Enumerations for your XBuddy Agent."""
 
-from enum import Enum
+from enum import StrEnum
 
 
-class SectionStatus(str, Enum):
+class SectionStatus(StrEnum):
     """Status of an agent section."""
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     DONE = "done"
 
 
-class RouterDirective(str, Enum):
+class RouterDirective(StrEnum):
     """Router directive for navigation control."""
     STAY = "stay"
     NEXT = "next"
     MODIFY = "modify"  # Format: "modify:section_id"
 
 
-class SectionID(str, Enum):
-    """Your agent's section identifiers.
+class SectionID(StrEnum):
+    BACKGROUND = "background"
+    TARGET_ROLE = "target_role"
+    SKILL_GAP = "skill_gap"
+    APPLICATION_STRATEGY = "application_strategy"
+    INTERVIEW_PREP = "interview_prep"
 
-    TODO: Rename these to match your domain.
-    For example, if you're building StudentBuddy:
-      GOALS = "goals"
-      SCHEDULE = "schedule"
-      RESOURCES = "resources"
-      STUDY_PLAN = "study_plan"
-      REVIEW = "review"
-    """
-    SECTION_1 = "section_1"
-    SECTION_2 = "section_2"
-    SECTION_3 = "section_3"
-    SECTION_4 = "section_4"
-    SECTION_5 = "section_5"
+
+class RequirementPriority(StrEnum):
+    MUST_HAVE = "must_have"
+    NICE_TO_HAVE = "nice_to_have"
+
+
+class WorkType(StrEnum):
+    REMOTE = "remote"
+    HYBRID = "hybrid"
+    ONSITE = "onsite"
+    FLEXIBLE = "flexible"
