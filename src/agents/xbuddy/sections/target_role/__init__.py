@@ -27,5 +27,6 @@ collected and the user has confirmed the summary.
         "work_type",
         "priorities",
     ],
+    opening_question="What job titles are you aiming for next? One to three is ideal.",
     next_section=SectionID.SKILL_GAP,
 )

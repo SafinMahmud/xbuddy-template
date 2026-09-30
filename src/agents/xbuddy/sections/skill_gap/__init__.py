@@ -31,5 +31,6 @@ evidence, at least one learning action is chosen, and the user has confirmed.
         "gaps",
         "learning_actions",
     ],
+    opening_question="Please paste at least one job posting you'd like to target (two or three is better), with a short label like \"Company - Title\".",
     next_section=SectionID.APPLICATION_STRATEGY,
 )

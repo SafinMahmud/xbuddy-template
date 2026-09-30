@@ -74,8 +74,10 @@ class VertexAIModelName(StrEnum):
 class GroqModelName(StrEnum):
     """https://console.groq.com/docs/models"""
 
-    LLAMA_31_8B = "llama-3.1-8b"
-    LLAMA_33_70B = "llama-3.3-70b"
+    # Current GroqCloud production IDs (the old "llama-3.1-8b"/"llama-3.3-70b" are rejected).
+    LLAMA_31_8B = "llama-3.1-8b-instant"
+    LLAMA_33_70B = "llama-3.3-70b-versatile"
+    GPT_OSS_120B = "openai/gpt-oss-120b"
 
     LLAMA_GUARD_4_12B = "meta-llama/llama-guard-4-12b"
 

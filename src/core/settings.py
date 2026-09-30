@@ -178,7 +178,8 @@ class Settings(BaseSettings):
                     self.AVAILABLE_MODELS.update(set(VertexAIModelName))
                 case Provider.GROQ:
                     if self.DEFAULT_MODEL is None:
-                        self.DEFAULT_MODEL = GroqModelName.LLAMA_31_8B
+                        # 70B: the 8B model is unreliable at the JSON decisions JobBuddy needs.
+                        self.DEFAULT_MODEL = GroqModelName.LLAMA_33_70B
                     self.AVAILABLE_MODELS.update(set(GroqModelName))
                 case Provider.AWS:
                     if self.DEFAULT_MODEL is None:

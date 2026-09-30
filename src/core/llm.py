@@ -169,7 +169,9 @@ def get_model(model_name: AllModelEnum | None = None, /) -> ModelT:
     if model_name in GroqModelName:
         # Use temperature 0.0 for LlamaGuard (deterministic), otherwise use default
         guard_temp = 0.0 if model_name == GroqModelName.LLAMA_GUARD_4_12B else temperature
-        return ChatGroq(model=api_model_name, temperature=guard_temp, max_tokens=max_tokens)
+        return ChatGroq(
+            model=api_model_name, temperature=guard_temp, max_tokens=max_tokens, streaming=True
+        )
     if model_name in AWSModelName:
         return ChatBedrock(model_id=api_model_name, temperature=temperature, max_tokens=max_tokens)
     if model_name in OllamaModelName:

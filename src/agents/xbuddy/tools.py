@@ -60,6 +60,18 @@ def build_context_packet(
             + draft.plain_text
         )
 
+    if template.next_section is not None:
+        nxt = get_section_template(template.next_section)
+        parts.append(
+            f"WHEN THE USER CONFIRMS THIS SECTION: the next section is {nxt.name}. "
+            f"Ask its opening question: {nxt.opening_question}"
+        )
+    else:
+        parts.append(
+            "WHEN THE USER CONFIRMS THIS SECTION: this is the last section. Thank them "
+            "and tell them you are now putting together their job search roadmap."
+        )
+
     return ContextPacket(
         section_id=sid,
         status=state.status,
