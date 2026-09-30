@@ -39,6 +39,9 @@ class SectionState(BaseModel):
     satisfaction_status: str | None = None  # satisfied, needs_improvement, or None
     status: SectionStatus = SectionStatus.PENDING
     confirmed_summary: str | None = None
+    # Structured fields the decision reported as covered but extraction could not find.
+    # covered_fields is the model's claim; extraction is the check on the actual data.
+    unverified_fields: list[str] = Field(default_factory=list)
 
 
 class ContextPacket(BaseModel):
