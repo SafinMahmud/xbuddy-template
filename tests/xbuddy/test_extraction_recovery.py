@@ -25,10 +25,12 @@ class CountingModel(FakeListChatModel):
     """Fails while `fail` is set, and counts every call."""
 
     calls: list = Field(default_factory=list)
+    configs: list = Field(default_factory=list)
     fail: bool = False
 
     async def ainvoke(self, input, config=None, **kwargs):
         self.calls.append(input)
+        self.configs.append(config)
         if self.fail:
             raise TimeoutError("provider timed out")
         return await super().ainvoke(input, config, **kwargs)
@@ -110,6 +112,25 @@ async def test_retry_uses_the_confirmed_summary_and_full_conversation(monkeypatc
     prompt_text = model.calls[0][1].content
     assert "Backend dev, 3 years" in prompt_text  # confirmed summary
     assert "was a junior dev" in prompt_text  # from messages; short memory has moved on
+
+
+@pytest.mark.asyncio
+async def test_extraction_calls_are_labelled_so_their_cost_is_visible(monkeypatch):
+    """The first attempt and each retry are named and tagged in the trace."""
+    first = use_extractor(monkeypatch, fail=True)
+    state = confirm(state_with(SectionID.BACKGROUND))
+    state.update(await memory_updater_node(state, CONFIG))
+    assert first.configs[0]["run_name"] == "extract[background]"
+    assert "internal_extraction" in first.configs[0]["tags"]
+    assert "extraction_retry" not in first.configs[0]["tags"]
+
+    retry = use_extractor(monkeypatch)
+    await memory_updater_node(stay(state), CONFIG)
+    config = retry.configs[0]
+    assert config["run_name"] == "extract[background] retry 2/3"
+    assert {"internal_extraction", "extraction_retry"} <= set(config["tags"])
+    assert config["metadata"] == {"section": "background", "extraction_attempt": 2}
+    assert len(retry.calls) == 1  # one section, one call per turn
 
 
 @pytest.mark.asyncio

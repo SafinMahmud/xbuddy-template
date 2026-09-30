@@ -28,6 +28,7 @@ from .models import (
 )
 
 EXTRACTION_TAG = "internal_extraction"
+EXTRACTION_RETRY_TAG = "extraction_retry"
 _JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 
 _SCHEMAS: dict[SectionID, str] = {
@@ -137,8 +138,14 @@ async def extract_section_data(
     confirmed_summary: str,
     user_data: JobBuddyData,
     config: RunnableConfig,
+    attempt: int = 1,
+    max_attempts: int = 1,
 ) -> JobBuddyData:
-    """Extract and merge structured data for a confirmed section. Raises on failure."""
+    """Extract and merge structured data for a confirmed section. Raises on failure.
+
+    Each call is named and tagged so its cost is visible in a trace: the run name
+    says which section and which attempt, and retries carry the extraction_retry tag.
+    """
     if section_id not in EXTRACTABLE_SECTIONS:
         return user_data
     transcript = "\n".join(
@@ -149,6 +156,21 @@ async def extract_section_data(
         SystemMessage(EXTRACTION_PROMPT.format(schema=_SCHEMAS[section_id])),
         HumanMessage(f"CONFIRMED SUMMARY:\n{confirmed_summary}\n\nCONVERSATION:\n{transcript}"),
     ]
-    extract_config = {**config, "tags": [*(config or {}).get("tags", []), EXTRACTION_TAG]}
+    is_retry = attempt > 1
+    extract_config = {
+        **config,
+        "run_name": f"extract[{section_id.value}]"
+        + (f" retry {attempt}/{max_attempts}" if is_retry else ""),
+        "tags": [
+            *(config or {}).get("tags", []),
+            EXTRACTION_TAG,
+            *([EXTRACTION_RETRY_TAG] if is_retry else []),
+        ],
+        "metadata": {
+            **(config or {}).get("metadata", {}),
+            "section": section_id.value,
+            "extraction_attempt": attempt,
+        },
+    }
     response = await get_chat_model(config).ainvoke(prompt, extract_config)
     return merge_extraction(section_id, _parse_json(str(response.content)), user_data)

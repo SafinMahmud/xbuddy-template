@@ -40,7 +40,14 @@ async def generate_reply_node(state: XBuddyState, config: RunnableConfig) -> dic
     if user_msg is not None and (not short_memory or short_memory[-1] is not user_msg):
         short_memory.append(user_msg)
 
-    prompt = [SystemMessage(packet.system_prompt), *short_memory[-SHORT_MEMORY_LIMIT:]]
+    system_prompt = packet.system_prompt
+    if state.get("roadmap"):
+        system_prompt += (
+            "\n\n---\n\nROADMAP ALREADY DELIVERED. Answer follow-up questions about it. "
+            "If the user wants to change an earlier answer, acknowledge it; the roadmap "
+            "will be regenerated once they confirm the change.\n\n" + state["roadmap"]
+        )
+    prompt = [SystemMessage(system_prompt), *short_memory[-SHORT_MEMORY_LIMIT:]]
     try:
         response = await get_chat_model(config).ainvoke(prompt, config)
         reply = AIMessage(content=response.content, id=getattr(response, "id", None))
