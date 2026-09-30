@@ -1,36 +1,60 @@
-"""Section prompts and navigation helpers.
+"""Section templates and navigation helpers."""
 
-Reference: https://github.com/Victoria824/FounderBuddy/blob/main/src/agents/founder_buddy/prompts.py
+from .enums import SectionID, SectionStatus
+from .sections import (
+    APPLICATION_STRATEGY_TEMPLATE,
+    BACKGROUND_TEMPLATE,
+    INTERVIEW_PREP_TEMPLATE,
+    SKILL_GAP_TEMPLATE,
+    TARGET_ROLE_TEMPLATE,
+)
+from .sections.base_prompt import BASE_RULES, SectionTemplate
 
-TODO: Implement:
-  - get_section_template(section_id) -> SectionTemplate
-  - get_next_section(current_section) -> SectionID | None
-  - get_next_unfinished_section(state) -> SectionID | None
-"""
+SECTION_TEMPLATES: dict[SectionID, SectionTemplate] = {
+    SectionID.BACKGROUND: BACKGROUND_TEMPLATE,
+    SectionID.TARGET_ROLE: TARGET_ROLE_TEMPLATE,
+    SectionID.SKILL_GAP: SKILL_GAP_TEMPLATE,
+    SectionID.APPLICATION_STRATEGY: APPLICATION_STRATEGY_TEMPLATE,
+    SectionID.INTERVIEW_PREP: INTERVIEW_PREP_TEMPLATE,
+}
 
-from .enums import SectionID
-from .sections.base_prompt import SectionTemplate
+__all__ = [
+    "BASE_RULES",
+    "SECTION_TEMPLATES",
+    "get_next_section",
+    "get_next_unfinished_section",
+    "get_section_template",
+]
 
 
-def get_section_template(section_id: SectionID) -> SectionTemplate:
-    """Return the template for a given section."""
-    # TODO: Map each SectionID to its SectionTemplate
-    raise NotImplementedError("Implement section template mapping")
+def get_section_template(section_id: SectionID | str) -> SectionTemplate:
+    """Return the template for a section. Raises ValueError for unknown ids."""
+    try:
+        return SECTION_TEMPLATES[SectionID(section_id)]
+    except ValueError:
+        valid = ", ".join(s.value for s in SectionID)
+        raise ValueError(f"Unknown section {section_id!r}. Expected one of: {valid}") from None
 
 
 def get_next_section(current: SectionID) -> SectionID | None:
-    """Return the next section in sequence, or None if all complete."""
+    """Return the next section in sequence, or None after the last one."""
     order = list(SectionID)
     idx = order.index(current)
-    if idx + 1 < len(order):
-        return order[idx + 1]
-    return None
+    return order[idx + 1] if idx + 1 < len(order) else None
 
 
-def get_next_unfinished_section(section_states: dict) -> SectionID | None:
-    """Find the first section that isn't done yet."""
+def get_next_unfinished_section(
+    section_states: dict, exclude: SectionID | None = None
+) -> SectionID | None:
+    """First section in order that isn't done, skipping `exclude`.
+
+    Used after a corrected answer: once the reopened section is confirmed,
+    the user returns to where they left off instead of re-walking done sections.
+    """
     for section_id in SectionID:
+        if section_id == exclude:
+            continue
         state = section_states.get(section_id.value)
-        if not state or state.status != "done":
+        if state is None or state.status != SectionStatus.DONE:
             return section_id
     return None
