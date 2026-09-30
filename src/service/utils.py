@@ -12,42 +12,13 @@ from schema import ChatMessage
 
 
 def _get_section_name(agent_name: str, section_id_str: str) -> str:
-    """
-    Get the section name for a given agent and section ID.
+    """Human-readable section name for a JobBuddy section id."""
+    from agents.xbuddy.prompts import SECTION_TEMPLATES
 
-    Args:
-        agent_name: Agent identifier (e.g., "value-canvas", "mission-pitch")
-        section_id_str: Section string ID (e.g., "interview", "icp", "pain")
-
-    Returns:
-        Human-readable section name
-    """
-    # Map agent names to their SECTION_TEMPLATES module paths
-    agent_template_map = {
-        "value-canvas": "agents.value_canvas.prompts",
-        "mission-pitch": "agents.mission_pitch.prompts",
-        "social-pitch": "agents.social_pitch.prompts",
-        "signature-pitch": "agents.signature_pitch.prompts",
-        "special-report": "agents.special_report.prompts",
-        "concept-pitch": "agents.concept_pitch.prompts",
-    }
-
-    module_path = agent_template_map.get(agent_name)
-
-    if module_path:
-        try:
-            # Dynamic import of SECTION_TEMPLATES from the agent's prompts module
-            import importlib
-            module = importlib.import_module(module_path)
-            section_templates = getattr(module, "SECTION_TEMPLATES", {})
-            template = section_templates.get(section_id_str)
-            if template:
-                return template.name
-        except (ImportError, AttributeError):
-            pass
-
-    # Fallback: format section_id_str nicely
-    return section_id_str.replace("_", " ").title()
+    for section_id, template in SECTION_TEMPLATES.items():
+        if section_id.value == section_id_str:
+            return template.name
+    return section_id_str
 
 
 def convert_message_content_to_string(content: str | list[str | dict]) -> str:
@@ -91,15 +62,13 @@ def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
                     # Import mapping utilities
                     # Removed: DentApp integration
 
-                    # Map section string ID to database integer ID
-                    section_id_int = SECTION_ID_MAPPING.get(section_id_str)
 
                     # Get section name using helper function
                     section_name = _get_section_name(agent_name, section_id_str)
 
                     # Add to custom_data (saved_section is always False for human messages)
                     human_message.custom_data.update({
-                        "section_id": section_id_int,
+                        "section_id": section_id_str,
                         "section_name": section_name,
                         "agent_name": agent_name,
                         "saved_section": False,
@@ -125,8 +94,6 @@ def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
                     # Import mapping utilities
                     # Removed: DentApp integration
 
-                    # Map section string ID to database integer ID
-                    section_id_int = SECTION_ID_MAPPING.get(section_id_str)
 
                     # Get section name using helper function
                     section_name = _get_section_name(agent_name, section_id_str)
@@ -137,7 +104,7 @@ def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
 
                     # Add to custom_data
                     ai_message.custom_data.update({
-                        "section_id": section_id_int,
+                        "section_id": section_id_str,
                         "section_name": section_name,
                         "agent_name": agent_name,
                         "saved_section": saved_section
