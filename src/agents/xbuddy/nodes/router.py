@@ -3,7 +3,7 @@
 Reference: https://github.com/Victoria824/FounderBuddy/blob/main/src/agents/founder_buddy/nodes/router.py
 
 Directives:
-  stay                 Keep the current section. Load its context if missing or stale.
+  stay                 Keep the current section and rebuild its context from latest state.
   next                 The user confirmed the current section: mark it done and move to
                        the next unfinished section (or finish if none remain). If the
                        current section was never started, just start it.
@@ -122,12 +122,11 @@ async def router_node(state: XBuddyState, config: RunnableConfig) -> dict[str, A
         return {**updates, **_switch_to(target, current, states)}
 
     # --- stay (default) ---------------------------------------------------------------
-    packet = state.get("context_packet")
-    if packet is None or packet.section_id != current:
-        states = _enter(states, current)
-        updates.update(
-            section_states=states,
-            context_packet=build_context_packet(current, states),
-        )
+    # Always rebuild the packet (cheap, no I/O) so it reflects the latest saved draft
+    # and confirmed summaries, e.g. for a returning user whose draft changed since.
+    entered = _enter(states, current)
+    if entered is not states:
+        updates["section_states"] = entered
+    updates["context_packet"] = build_context_packet(current, entered)
     updates["router_directive"] = RouterDirective.STAY.value
     return updates

@@ -1,7 +1,14 @@
 """Agent tools: the section context loader.
 
-PR 2 builds the context packet from graph state. Loading saved drafts from
-Supabase is added with persistence in PR 4.
+Two different things can exist for a section, and they are kept separate:
+  - SectionState.content: the in-progress, UNCONFIRMED draft. It lives in
+    section_states, which the LangGraph checkpointer persists per thread.
+    memory_updater (PR 4) populates it; Supabase persistence is also PR 4.
+  - SectionState.confirmed_summary: what the user explicitly confirmed.
+
+The packet's `draft` is only ever the real unconfirmed draft. A confirmed
+summary is never passed off as a draft; for a reopened section it is shown
+separately as the answer being corrected.
 """
 
 from typing import Any
@@ -9,7 +16,7 @@ from typing import Any
 from langchain_core.tools import tool
 
 from .enums import SectionID, SectionStatus
-from .models import ContextPacket, SectionContent, SectionState
+from .models import ContextPacket, SectionState
 from .prompts import BASE_RULES, get_section_template
 
 
@@ -39,13 +46,17 @@ def build_context_packet(
     if recap:
         parts.append("CONFIRMED SO FAR (recap only this, do not re-ask):\n" + recap)
 
-    draft = state.content
-    if draft is None and state.confirmed_summary:
-        # Reopened section: show the previously confirmed answer so the user can correct it.
-        draft = SectionContent(content={}, plain_text=state.confirmed_summary)
+    if state.confirmed_summary:
+        # Reopened section: the user is correcting an answer they confirmed earlier.
+        parts.append(
+            "PREVIOUSLY CONFIRMED ANSWER (the user is correcting it; change only what "
+            "they ask, then re-confirm):\n" + state.confirmed_summary
+        )
+
+    draft = state.content  # unconfirmed work in progress, if any
     if draft is not None and draft.plain_text:
         parts.append(
-            "CURRENT DRAFT FOR THIS SECTION (update it, do not start over):\n"
+            "UNCONFIRMED DRAFT FOR THIS SECTION (continue from it, do not start over):\n"
             + draft.plain_text
         )
 

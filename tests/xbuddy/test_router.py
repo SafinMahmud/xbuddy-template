@@ -4,7 +4,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from agents.xbuddy.enums import SectionID, SectionStatus
-from agents.xbuddy.models import default_state
+from agents.xbuddy.models import SectionContent, default_state
 from agents.xbuddy.nodes.router import router_node
 from agents.xbuddy.tools import build_context_packet
 
@@ -47,14 +47,17 @@ async def test_stay_keeps_section_and_loads_missing_context():
 
 
 @pytest.mark.asyncio
-async def test_stay_does_not_reload_existing_context():
+async def test_stay_rebuilds_context_from_latest_state():
+    """A packet built before a draft was saved must not hide that draft."""
     state = make_state(SectionID.BACKGROUND, {SectionID.BACKGROUND: SectionStatus.IN_PROGRESS})
     state["context_packet"] = build_context_packet(SectionID.BACKGROUND, state["section_states"])
-    state["router_directive"] = "stay"
-    result = await router_node(state, CONFIG)
+    state["section_states"]["background"] = state["section_states"]["background"].model_copy(
+        update={"content": SectionContent(content={}, plain_text="Backend dev, Python")}
+    )
+    result = await router_node({**state, "router_directive": "stay"}, CONFIG)
 
-    assert "context_packet" not in result
-    assert "section_states" not in result
+    assert result["context_packet"].draft.plain_text == "Backend dev, Python"
+    assert "section_states" not in result  # already in progress, nothing to change
 
 
 @pytest.mark.asyncio
@@ -128,8 +131,9 @@ async def test_modify_reopens_earlier_section_with_previous_answer():
     assert status(result, SectionID.TARGET_ROLE) == SectionStatus.IN_PROGRESS
     assert status(result, SectionID.SKILL_GAP) == SectionStatus.IN_PROGRESS  # untouched
     packet = result["context_packet"]
-    assert packet.draft.plain_text == "target_role summary"
-    assert "update it, do not start over" in packet.system_prompt
+    assert "PREVIOUSLY CONFIRMED ANSWER" in packet.system_prompt
+    assert "target_role summary" in packet.system_prompt
+    assert packet.draft is None  # a confirmed summary is not passed off as a draft
     assert result["router_directive"] == "stay"
 
 
@@ -183,6 +187,67 @@ async def test_router_does_not_mutate_input_state():
 
     assert state["section_states"]["background"].status == SectionStatus.IN_PROGRESS
     assert state["current_section"] == SectionID.BACKGROUND
+
+
+# --- drafts: unconfirmed vs confirmed ---------------------------------------------------
+
+def _with_draft(state: dict, sid: SectionID, text: str) -> dict:
+    ss = state["section_states"]
+    ss[sid.value] = ss[sid.value].model_copy(
+        update={"content": SectionContent(content={}, plain_text=text)}
+    )
+    return state
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_draft_is_kept_for_returning_user():
+    state = make_state(SectionID.TARGET_ROLE, {SectionID.BACKGROUND: SectionStatus.DONE,
+                                                SectionID.TARGET_ROLE: SectionStatus.IN_PROGRESS},
+                       router_directive="stay")
+    _with_draft(state, SectionID.TARGET_ROLE, "Backend roles, Toronto")
+    packet = (await router_node(state, CONFIG))["context_packet"]
+
+    assert packet.draft.plain_text == "Backend roles, Toronto"
+    assert "UNCONFIRMED DRAFT" in packet.system_prompt
+    assert "PREVIOUSLY CONFIRMED ANSWER" not in packet.system_prompt
+
+
+@pytest.mark.asyncio
+async def test_reopened_section_shows_confirmed_answer_and_draft_separately():
+    state = make_state(SectionID.SKILL_GAP, {SectionID.BACKGROUND: SectionStatus.DONE,
+                                              SectionID.TARGET_ROLE: SectionStatus.DONE,
+                                              SectionID.SKILL_GAP: SectionStatus.IN_PROGRESS},
+                       router_directive="modify:target_role")
+    _with_draft(state, SectionID.TARGET_ROLE, "Switching to data engineering")
+    result = await router_node(state, CONFIG)
+    packet = result["context_packet"]
+
+    assert packet.draft.plain_text == "Switching to data engineering"  # draft not overwritten
+    prompt = packet.system_prompt
+    assert prompt.index("PREVIOUSLY CONFIRMED ANSWER") < prompt.index("UNCONFIRMED DRAFT")
+    assert result["section_states"]["target_role"].content.plain_text == (
+        "Switching to data engineering"
+    )
+
+
+@pytest.mark.asyncio
+async def test_draft_survives_checkpoint_for_returning_user():
+    """Drafts live in section_states, which the checkpointer persists per thread."""
+    from agents.xbuddy.agent import graph
+
+    cfg = {"configurable": {"thread_id": "draft-persist", "user_id": 1}}
+    first = await graph.ainvoke({"messages": []}, cfg)  # new thread: background in progress
+    states = dict(first["section_states"])
+    states["background"] = states["background"].model_copy(
+        update={"content": SectionContent(content={}, plain_text="3 yrs Django")}
+    )
+    await graph.aupdate_state(cfg, {"section_states": states})
+
+    returning = await graph.ainvoke({"messages": []}, cfg)  # user comes back later
+
+    assert returning["current_section"] == SectionID.BACKGROUND
+    assert returning["context_packet"].draft.plain_text == "3 yrs Django"
+    assert "UNCONFIRMED DRAFT" in returning["context_packet"].system_prompt
 
 
 # --- graph wiring ------------------------------------------------------------------------
