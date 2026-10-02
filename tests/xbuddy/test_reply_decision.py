@@ -1,5 +1,7 @@
 """PR 3 tests: generate_reply and generate_decision with fake models."""
 
+import json
+
 import pytest
 from langchain_core.language_models.fake_chat_models import (
     FakeListChatModel,
@@ -17,12 +19,15 @@ from agents.xbuddy.nodes.generate_decision import (
     DECISION_TAG,
     apply_guardrails,
     generate_decision_node,
+    missing_required_fields,
     parse_decision,
 )
 from agents.xbuddy.nodes.generate_reply import FALLBACK_REPLY, generate_reply_node
+from agents.xbuddy.prompts import get_section_template
 from agents.xbuddy.tools import build_context_packet
 
 CONFIG = {"configurable": {"thread_id": "t", "user_id": 1}}
+BACKGROUND_FIELDS = get_section_template(SectionID.BACKGROUND).required_fields
 
 
 class RecordingModel(FakeListChatModel):
@@ -142,9 +147,12 @@ def test_parse_malformed_decision_raises(raw):
 @pytest.mark.parametrize(
     "fields, expected",
     [
-        ({"router_directive": "next", "is_satisfied": True, "section_summary": "ok"}, "next"),
-        ({"router_directive": "next", "is_satisfied": True, "section_summary": " "}, "stay"),
-        ({"router_directive": "next", "is_satisfied": None, "section_summary": "ok"}, "stay"),
+        ({"router_directive": "next", "is_satisfied": True, "section_summary": "ok",
+          "covered_fields": BACKGROUND_FIELDS}, "next"),
+        ({"router_directive": "next", "is_satisfied": True, "section_summary": " ",
+          "covered_fields": BACKGROUND_FIELDS}, "stay"),
+        ({"router_directive": "next", "is_satisfied": None, "section_summary": "ok",
+          "covered_fields": BACKGROUND_FIELDS}, "stay"),
         ({"router_directive": "modify:background"}, "stay"),        # current section
         ({"router_directive": "modify:salary"}, "stay"),            # unknown section
         ({"router_directive": "modify:target_role"}, "modify:target_role"),
@@ -153,6 +161,54 @@ def test_parse_malformed_decision_raises(raw):
 def test_guardrails(fields, expected):
     decision = decision_mod.ChatAgentDecision(**fields)
     assert apply_guardrails(decision, SectionID.BACKGROUND).router_directive == expected
+
+
+# --- completeness: `next` needs every required checklist item ---------------------------------
+
+def confirmed(covered: list[str]) -> "decision_mod.ChatAgentDecision":
+    return decision_mod.ChatAgentDecision(
+        router_directive="next", is_satisfied=True, section_summary="ok", covered_fields=covered)
+
+
+def test_next_refused_when_a_required_field_is_missing():
+    covered = [f for f in BACKGROUND_FIELDS if f != "education"]
+    decision = confirmed(covered)
+
+    assert missing_required_fields(decision, SectionID.BACKGROUND) == ["education"]
+    assert apply_guardrails(decision, SectionID.BACKGROUND).router_directive == "stay"
+
+
+def test_next_refused_when_covered_fields_is_omitted():
+    """Fails closed: a model that doesn't report coverage cannot advance."""
+    decision = confirmed([])
+    assert missing_required_fields(decision, SectionID.BACKGROUND) == BACKGROUND_FIELDS
+    assert apply_guardrails(decision, SectionID.BACKGROUND).router_directive == "stay"
+
+
+def test_fields_from_another_section_do_not_count():
+    other = get_section_template(SectionID.TARGET_ROLE).required_fields
+    assert apply_guardrails(confirmed(other), SectionID.BACKGROUND).router_directive == "stay"
+
+
+@pytest.mark.parametrize("sid", list(SectionID))
+def test_next_allowed_for_every_section_once_all_fields_are_covered(sid):
+    fields = [f.upper() + " " for f in get_section_template(sid).required_fields]  # case/space
+    decision = confirmed(fields)
+    assert missing_required_fields(decision, sid) == []
+    assert apply_guardrails(decision, sid).router_directive == "next"
+
+
+@pytest.mark.asyncio
+async def test_decision_node_stays_when_model_advances_with_missing_fields(monkeypatch):
+    raw = json.dumps({"router_directive": "next", "is_satisfied": True,
+                      "section_summary": "Backend dev", "covered_fields": ["current_role"]})
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[raw]))
+    result = await generate_decision_node(
+        base_state(messages=exchange("Yes", "Great, moving on!")), CONFIG)
+
+    assert result["router_directive"] == "stay"
+    assert result["agent_output"].covered_fields == ["current_role"]
+    assert "error_count" not in result  # a downgrade is a decision, not an error
 
 
 # --- generate_decision node ------------------------------------------------------------------
@@ -167,10 +223,10 @@ def exchange(user_text: str, reply_text: str) -> list:
 
 @pytest.mark.asyncio
 async def test_decision_valid_next(monkeypatch):
-    raw = (
-        '{"router_directive": "next", "is_satisfied": true, "should_save_content": true,'
-        ' "section_summary": "Backend dev, 3 years, Python"}'
-    )
+    raw = json.dumps({
+        "router_directive": "next", "is_satisfied": True, "should_save_content": True,
+        "section_summary": "Backend dev, 3 years, Python", "covered_fields": BACKGROUND_FIELDS,
+    })
     model = use_model(monkeypatch, decision_mod, RecordingModel(responses=[raw]))
     state = base_state(messages=exchange("Yes, looks good", "Great! What titles next?"))
 

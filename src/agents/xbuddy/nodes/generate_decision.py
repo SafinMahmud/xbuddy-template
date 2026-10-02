@@ -5,7 +5,10 @@ Reference: https://github.com/Victoria824/FounderBuddy/blob/main/src/agents/foun
 The model returns JSON matching ChatAgentDecision. The output is validated in
 code and never trusted blindly:
   - Malformed or invalid output falls back to "stay" and records the error.
-  - "next" requires the user to be satisfied and a non-empty section summary.
+  - "next" requires the user to be satisfied, a non-empty section summary, and
+    every item of the section's completion checklist listed in covered_fields.
+    A missing or partial list fails closed (stay), so the model cannot advance a
+    section whose required fields were never collected.
   - "modify:<id>" must name a real section other than the current one.
 The call is tagged "internal_decision" so /stream never shows it to the user.
 """
@@ -37,10 +40,13 @@ Return ONLY a JSON object, no prose, with these keys:
   "should_save_content": true | false
   "section_summary": plain-text summary of everything collected in the current
                      section so far, or null if nothing yet
+  "covered_fields": list of the completion-checklist item names (exactly as
+                    written below) that the user has already provided
 
 Rules:
-- "next" ONLY if the assistant had presented a summary of the current section and
-  the user explicitly confirmed it (for example "yes", "looks good").
+- "next" ONLY if the assistant had presented a summary of the current section,
+  the user explicitly confirmed it (for example "yes", "looks good"), and every
+  checklist item is in covered_fields.
 - "modify:<section_id>" if the user wants to change an answer from an EARLIER
   section. Valid section ids: {section_ids}.
 - Otherwise "stay" (still collecting, user corrected the summary, off topic).
@@ -78,11 +84,22 @@ def parse_decision(raw: str) -> ChatAgentDecision:
         raise ValueError(f"invalid decision fields: {exc.errors()[0]['msg']}") from None
 
 
+def missing_required_fields(decision: ChatAgentDecision, current: SectionID) -> list[str]:
+    """Checklist items of the current section the decision does not report as covered."""
+    covered = {f.strip().lower() for f in decision.covered_fields}
+    return [f for f in get_section_template(current).required_fields if f.lower() not in covered]
+
+
 def apply_guardrails(decision: ChatAgentDecision, current: SectionID) -> ChatAgentDecision:
     """Downgrade decisions the conversation doesn't support to 'stay'."""
     directive = decision.router_directive
     if directive == RouterDirective.NEXT.value:
-        if decision.is_satisfied is not True or not (decision.section_summary or "").strip():
+        incomplete = (
+            decision.is_satisfied is not True
+            or not (decision.section_summary or "").strip()
+            or missing_required_fields(decision, current)
+        )
+        if incomplete:
             return decision.model_copy(update={"router_directive": RouterDirective.STAY.value})
     elif directive.startswith(f"{RouterDirective.MODIFY.value}:"):
         target = directive.split(":", 1)[1]
@@ -120,7 +137,14 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
             response = await get_chat_model(config).ainvoke(
                 [SystemMessage(system), HumanMessage(transcript)], decision_config
             )
-            decision = apply_guardrails(parse_decision(str(response.content)), current)
+            proposed = parse_decision(str(response.content))
+            decision = apply_guardrails(proposed, current)
+            if decision.router_directive != proposed.router_directive:
+                logger.info(
+                    "generate_decision: %s downgraded to stay (missing fields: %s)",
+                    proposed.router_directive,
+                    missing_required_fields(proposed, current) or "none",
+                )
         except Exception as exc:  # noqa: BLE001
             # Any failure (malformed output or provider error) falls back to "stay"
             # rather than crashing the turn.
