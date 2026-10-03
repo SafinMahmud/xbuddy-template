@@ -21,6 +21,10 @@ class SectionStore(Protocol):
     async def save_section(self, user_id: int, thread_id: str, state: SectionState) -> None: ...
 
 
+class RoadmapStore(Protocol):
+    async def save_roadmap(self, user_id: int, thread_id: str, roadmap: str) -> None: ...
+
+
 class SupabaseSectionStore:
     def __init__(self) -> None:
         from integrations.supabase.supabase_client import SupabaseClient
@@ -41,14 +45,37 @@ class SupabaseSectionStore:
             confirmed_summary=state.confirmed_summary,
             agent_id=AGENT_ID,
         )
-        if not result.get("success"):
-            raise RuntimeError(result.get("error", "unknown Supabase error"))
+        _raise_on_failure(result)
+
+    async def save_roadmap(self, user_id: int, thread_id: str, roadmap: str) -> None:
+        # Reuses the template's business_plans table (one row per thread).
+        result = await asyncio.to_thread(
+            self._client.save_business_plan,
+            user_id=user_id,
+            thread_id=thread_id,
+            content=roadmap,
+            markdown_content=roadmap,
+            agent_id=AGENT_ID,
+        )
+        _raise_on_failure(result)
+
+
+def _raise_on_failure(result: dict) -> None:
+    if not result.get("success"):
+        raise RuntimeError(result.get("error", "unknown Supabase error"))
+
+
+def _supabase_configured() -> bool:
+    from core.settings import settings
+
+    return bool(settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY)
 
 
 def get_section_store() -> SectionStore | None:
     """Supabase store when configured, otherwise None (checkpointer only)."""
-    from core.settings import settings
+    return SupabaseSectionStore() if _supabase_configured() else None
 
-    if not (settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY):
-        return None
-    return SupabaseSectionStore()
+
+def get_roadmap_store() -> RoadmapStore | None:
+    """Supabase store when configured, otherwise None (checkpointer only)."""
+    return SupabaseSectionStore() if _supabase_configured() else None

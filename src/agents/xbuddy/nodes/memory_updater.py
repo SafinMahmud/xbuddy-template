@@ -73,7 +73,13 @@ async def _extract(
     sid = section.section_id
     try:
         user_data = await extract_section_data(
-            sid, conversation, section.confirmed_summary or "", user_data, config
+            sid,
+            conversation,
+            section.confirmed_summary or "",
+            user_data,
+            config,
+            attempt=section.extraction_attempts + 1,
+            max_attempts=MAX_EXTRACTION_ATTEMPTS,
         )
         unverified = unverified_fields(sid, user_data)
     except Exception as exc:  # noqa: BLE001 - extraction must not block the conversation
@@ -156,8 +162,15 @@ async def memory_updater_node(state: XBuddyState, config: RunnableConfig) -> dic
             if not retried.unverified_fields:
                 logger.info("recovered extraction for %s", retried.section_id.value)
 
+    # Generate the roadmap when the last open section is confirmed. After it
+    # exists, only regenerate if this confirmation changed something (a
+    # corrected section), not for a "thanks" in an already-done section.
     if confirmed_now and get_next_unfinished_section(states) is None:
-        updates["should_generate_final_output"] = True
+        newly_confirmed = before.status != SectionStatus.DONE or (
+            before.confirmed_summary != section.confirmed_summary
+        )
+        if newly_confirmed or not state.get("roadmap"):
+            updates["should_generate_final_output"] = True
     if user_data is not state["user_data"]:
         updates["user_data"] = user_data
     if not changed:
