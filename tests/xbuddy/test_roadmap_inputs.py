@@ -23,6 +23,7 @@ from agents.xbuddy.roadmap import (
     fallback_roadmap,
     missing_inputs,
     reconcile,
+    stated_total_years,
     validate_roadmap,
 )
 
@@ -228,3 +229,64 @@ async def test_roadmap_repeating_the_conflicting_value_is_rewritten(monkeypatch)
     feedback = model.calls[1][-1].content
     assert "says '5 years' of experience, the user confirmed 3" in feedback
     assert "targets remote work, the user confirmed hybrid" in feedback
+
+
+# --- years of experience: total vs tenure in one role ------------------------------------------
+
+def background(text: str) -> dict:
+    states = sections()
+    states["background"] = SectionState(
+        section_id=SectionID.BACKGROUND, status=SectionStatus.DONE, confirmed_summary=text)
+    return states
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("Backend developer with 3 years of experience.", 3),
+        ("5+ years of professional experience in Python.", 5),
+        ("Experience: 4 years. Skills: Python.", 4),
+        ("- **Experience:** 6 years", 6),
+        ("Backend developer, 3 years, Python.", 3),  # one lone number is the total
+        ("5 years of experience, including 2 years as team lead.", 5),  # explicit total wins
+        ("3 years at Acme and 2 years at Beta.", None),  # two tenures, no stated total
+        ("8 years of experience overall, 5 years of experience in backend.", None),  # two totals
+        ("Backend developer, Python and Django.", None),
+    ],
+)
+def test_total_experience_is_read_only_when_it_is_clear(text, expected):
+    assert stated_total_years(text) == expected
+
+
+def test_tenure_in_a_prior_role_is_not_mistaken_for_total_experience():
+    """The summary states the total and a tenure. The extracted total matches the total."""
+    states = background("5 years of experience, including 2 years as team lead.")
+    assert conflicting_inputs(states, data(years=5)) == []
+    assert reconcile(states, data(years=5)).profile.years_experience == 5
+
+
+def test_wrong_extraction_is_corrected_from_the_explicit_total_not_the_tenure():
+    """Extraction picked up the tenure (2). The summary's explicit total (5) wins."""
+    states = background("5 years of experience, including 2 years as team lead.")
+    assert conflicting_inputs(states, data(years=2)) == [
+        "years of experience: the confirmed summary says 5, the extracted profile says 2"]
+    assert reconcile(states, data(years=2)).profile.years_experience == 5
+
+
+def test_ambiguous_summary_is_not_reconciled_and_keeps_the_extracted_total():
+    """Several durations and no stated total: no guess is made either way."""
+    states = background("3 years at Acme and 2 years at Beta.")
+    assert conflicting_inputs(states, data(years=5)) == []
+    assert reconcile(states, data(years=5)).profile.years_experience == 5
+    assert reconcile(states, data(years=5)) == data(years=5)
+
+
+def test_roadmap_may_mention_a_tenure_alongside_the_total():
+    text = roadmap(where="Backend developer with 5 years of experience, including 2 years "
+                         "as team lead.")
+    assert validate_roadmap(text, data(years=5)) == []
+
+    wrong_total = roadmap(where="Backend developer with 7 years of experience, including "
+                                "2 years as team lead.")
+    problems = validate_roadmap(wrong_total, data(years=5))
+    assert problems == ["contradiction: roadmap says '7 years' of experience, the user confirmed 5"]

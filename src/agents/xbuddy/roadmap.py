@@ -72,6 +72,15 @@ _CHECKBOX = re.compile(r"^\s*[-*]\s*\[[ xX]?\]", re.MULTILINE)
 _MONEY = re.compile(r"[$£€]\s?\d")
 _TABLE_DIVIDER = re.compile(r"^\|?[\s:|-]+\|?$")
 _YEARS = re.compile(r"(\d+)\+?\s*(?:years|year|yrs)\b", re.IGNORECASE)
+# Phrases that state TOTAL experience, as opposed to a tenure in one role:
+# "3 years of experience", "5+ years' professional experience", "Experience: 4 years".
+_TOTAL_YEARS = re.compile(
+    r"(\d+)\+?\s*(?:years|year|yrs)'?\s+(?:of\s+)?"
+    r"(?:total\s+|overall\s+|professional\s+|work\s+|working\s+|industry\s+|relevant\s+)*"
+    r"experience"
+    r"|experience\s*(?:\*\*)?\s*[:=-]?\s*(?:\*\*)?\s*(?:of\s+)?(\d+)\+?\s*(?:years|year|yrs)\b",
+    re.IGNORECASE,
+)
 MIN_SECTION_CHARS = 10
 _OTHER_PRIORITY = {"must_have": "nice_to_have", "nice_to_have": "must_have"}
 _WORK_WORDS = {
@@ -107,6 +116,26 @@ def requirements_table(user_data: JobBuddyData) -> str:
     return "\n".join(lines)
 
 
+def total_years_claims(text: str) -> set[int]:
+    """Numbers stated as total experience. Tenures in a single role are not included."""
+    return {int(a or b) for a, b in _TOTAL_YEARS.findall(canonical(text))}
+
+
+def stated_total_years(text: str) -> int | None:
+    """Total years of experience a text states, or None when that is unclear.
+
+    A text can mention several durations ("5 years of experience, including 2 years
+    as team lead"). Only an explicit total-experience phrase counts. Without one, a
+    single lone number is taken as the total; several numbers are ambiguous and
+    return None rather than a guess.
+    """
+    explicit = total_years_claims(text)
+    if explicit:
+        return next(iter(explicit)) if len(explicit) == 1 else None
+    numbers = {int(m.group(1)) for m in _YEARS.finditer(canonical(text))}
+    return next(iter(numbers)) if len(numbers) == 1 else None
+
+
 def missing_inputs(section_states: dict[str, SectionState], user_data: JobBuddyData) -> list[str]:
     """What the roadmap would normally rely on but was not collected."""
     confirmed = gather_confirmed(section_states)
@@ -136,12 +165,12 @@ def conflicting_inputs(
     confirmed = gather_confirmed(section_states)
     conflicts: list[str] = []
 
-    background = canonical(confirmed.get(SectionID.BACKGROUND, ""))
     years = user_data.profile.years_experience
-    stated_years = {int(m.group(1)) for m in _YEARS.finditer(background)}
-    if years is not None and stated_years and years not in stated_years:
+    stated = stated_total_years(confirmed.get(SectionID.BACKGROUND, ""))
+    # Only a clear total in the summary can conflict. An ambiguous summary is not a conflict.
+    if years is not None and stated is not None and stated != years:
         conflicts.append(
-            f"years of experience: the confirmed summary says {min(stated_years)}, "
+            f"years of experience: the confirmed summary says {stated}, "
             f"the extracted profile says {years}"
         )
 
@@ -160,18 +189,17 @@ def conflicting_inputs(
 def reconcile(section_states: dict[str, SectionState], user_data: JobBuddyData) -> JobBuddyData:
     """Data to hold the roadmap to. When the extracted data conflicts with a summary
     the user confirmed, the confirmed summary wins, because the user approved that
-    exact text and the extracted value is a model's reading of it."""
+    exact text and the extracted value is a model's reading of it. When the summary
+    is ambiguous, nothing is reconciled and the extracted value stands."""
     confirmed = gather_confirmed(section_states)
     profile, target = user_data.profile, user_data.target_role
 
-    stated_years = {
-        int(m.group(1))
-        for m in _YEARS.finditer(canonical(confirmed.get(SectionID.BACKGROUND, "")))
-    }
-    years = profile.years_experience
-    if years is not None and stated_years and years not in stated_years:
-        value = next(iter(stated_years)) if len(stated_years) == 1 else None
-        profile = profile.model_copy(update={"years_experience": value})
+    # Years: reconcile only when the summary states one clear total. If it is
+    # ambiguous (several durations, no explicit total), the extracted value is kept.
+    stated = stated_total_years(confirmed.get(SectionID.BACKGROUND, ""))
+    extracted = profile.years_experience
+    if extracted is not None and stated is not None and stated != extracted:
+        profile = profile.model_copy(update={"years_experience": stated})
 
     summary = canonical(confirmed.get(SectionID.TARGET_ROLE, "")).lower()
     stated_work = [k for k, words in _WORK_WORDS.items() if any(w in summary for w in words)]
@@ -357,10 +385,17 @@ def find_contradictions(roadmap: str, user_data: JobBuddyData) -> list[str]:
 
     years = user_data.profile.years_experience
     if years is not None:
-        for match in _YEARS.finditer(_section_body(roadmap, "## Where you are now")):
-            if int(match.group(1)) != years:
+        where = _section_body(roadmap, "## Where you are now")
+        # Only total-experience statements are compared. "2 years as team lead" is a
+        # tenure, not a claim about total experience.
+        claims = total_years_claims(where)
+        if not claims:
+            lone = stated_total_years(where)
+            claims = {lone} if lone is not None else set()
+        for claim in sorted(claims):
+            if claim != years:
                 problems.append(
-                    f"contradiction: roadmap says '{match.group(0)}' of experience, "
+                    f"contradiction: roadmap says '{claim} years' of experience, "
                     f"the user confirmed {years}"
                 )
 
