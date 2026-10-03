@@ -1,6 +1,7 @@
 """PR 5 tests: implementation node, roadmap quality criteria, and grounding."""
 
 import json
+from pathlib import Path
 
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
@@ -197,6 +198,61 @@ def test_curly_apostrophes_in_headings_are_accepted():
 def test_each_quality_problem_is_detected(broken, expected):
     problems = validate_roadmap(broken, user_data())
     assert any(expected in p for p in problems), problems
+
+
+# --- real model output and typography ----------------------------------------------------------
+
+REAL_ROADMAP = (Path(__file__).parent / "fixtures" / "real_model_roadmap.md").read_text("utf-8")
+
+
+def real_data() -> JobBuddyData:
+    sources = ["Shopify - Backend Developer", "Wealthsimple - Software Engineer"]
+    return JobBuddyData(
+        profile=UserProfile(current_role="Backend Developer", years_experience=3),
+        target_role=TargetRole(titles=["Senior Backend Developer"], work_type=WorkType.HYBRID),
+        job_sources=[JobSource(label=s) for s in sources],
+        requirements=[req("Kubernetes", sources),
+                      req("Docker", sources[:1], RequirementPriority.NICE_TO_HAVE)],
+    )
+
+
+def test_real_model_roadmap_passes_every_check():
+    """A roadmap openai/gpt-oss-120b actually produced. It writes "8-week" with a
+    non-breaking hyphen (U+2011), uses en dashes and curly apostrophes, and bolds the
+    week numbers. None of that is a quality problem."""
+    assert "8\u2011week plan" in REAL_ROADMAP
+    assert validate_roadmap(REAL_ROADMAP, real_data()) == []
+
+
+@pytest.mark.parametrize(
+    "heading",
+    ["## 8\u2011week plan", "## 8\u2013week plan", "## **8-Week Plan**", "## 8-week plan:",
+     "##  8-week   plan  "],
+)
+def test_heading_typography_variants_are_accepted(heading):
+    variant = GOOD_ROADMAP.replace("## 8-week plan", heading)
+    assert validate_roadmap(variant, user_data()) == []
+
+
+def test_checkbox_styles_are_accepted():
+    starred = GOOD_ROADMAP.replace("- [ ]", "* [ ]").replace("* [ ] Update LinkedIn", "- [x] Update LinkedIn")
+    assert validate_roadmap(starred, user_data()) == []
+
+
+def test_typography_does_not_hide_real_problems():
+    broken = REAL_ROADMAP.replace("2 of 2 postings", "7 of 9 postings").replace(
+        "3 years of experience", "12 years of experience")
+    problems = validate_roadmap(broken, real_data())
+    assert any("ungrounded claim '7 of 9 postings'" in p for p in problems)
+    assert any("says '12 years' of experience" in p for p in problems)
+
+
+def test_one_line_naming_both_priorities_is_not_a_contradiction():
+    both = GOOD_ROADMAP.replace(
+        "- Kubernetes: 2 of 2 postings (Shopify - Backend, Wealthsimple - SWE)\n"
+        "- Docker: 1 of 2 postings (Shopify - Backend)",
+        "- Kubernetes is a must-have (2 of 2 postings); Docker is a nice-to-have (1 of 2 postings)")
+    assert find_contradictions(both, confirmed_data()) == []
 
 
 # --- contradictions with confirmed data --------------------------------------------------------

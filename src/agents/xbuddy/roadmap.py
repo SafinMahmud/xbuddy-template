@@ -63,10 +63,12 @@ MIN_CHECKLIST_ITEMS = 5
 TOP_REQUIREMENTS = 5
 _PLACEHOLDERS = ("[tbd]", "[not provided]", "todo", "lorem ipsum")
 _COUNT_CLAIM = re.compile(r"(\d+)\s+of\s+(\d+)\s+postings?", re.IGNORECASE)
+_CHECKBOX = re.compile(r"^\s*[-*]\s*\[[ xX]?\]", re.MULTILINE)
 _MONEY = re.compile(r"[$£€]\s?\d")
 _TABLE_DIVIDER = re.compile(r"^\|?[\s:|-]+\|?$")
 _YEARS = re.compile(r"(\d+)\+?\s*(?:years|year|yrs)\b", re.IGNORECASE)
 MIN_SECTION_CHARS = 10
+_OTHER_PRIORITY = {"must_have": "nice_to_have", "nice_to_have": "must_have"}
 _WORK_WORDS = {
     "remote": ("remote",),
     "hybrid": ("hybrid",),
@@ -156,16 +158,40 @@ def fallback_roadmap(section_states: dict[str, SectionState], user_data: JobBudd
     ]
     return "\n\n".join(parts)
 
+# Models often emit typographic look-alikes (a non-breaking hyphen in "8-week", curly
+# apostrophes, en dashes, non-breaking spaces). The checks compare canonical text so
+# a correct roadmap is never rejected over typography.
+_CANON = str.maketrans({
+    "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"',
+    "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-", "\u2212": "-",
+    "\u00a0": " ", "\u202f": " ", "\u2009": " ",
+})
+
+
+def canonical(text: str) -> str:
+    return (text or "").translate(_CANON)
+
+
 def _normalize(text: str) -> str:
-    return text.replace("\u2019", "'").lower()
+    return canonical(text).lower()
+
+
+def _heading_key(line: str) -> str:
+    """A heading line reduced to its level and words: '## **8-Week Plan:**' -> '## 8-week plan'."""
+    stripped = canonical(line).strip()
+    if not stripped.startswith("#"):
+        return ""
+    hashes = stripped[: len(stripped) - len(stripped.lstrip("#"))]
+    words = stripped[len(hashes):].replace("*", "").replace("_", " ").strip().rstrip(":").strip()
+    return f"{hashes} {' '.join(words.split())}".lower()
 
 
 def _section_body(roadmap: str, heading: str) -> str:
     """Text under a heading, up to the next heading of the same or higher level."""
-    lines = roadmap.replace("\u2019", "'").splitlines()
+    target = _heading_key(heading)
     body, inside = [], False
-    for line in lines:
-        if line.strip().lower() == heading.lower():
+    for line in canonical(roadmap).splitlines():
+        if _heading_key(line) == target:
             inside = True
             continue
         if inside and line.startswith("#"):
@@ -187,9 +213,9 @@ def validate_roadmap(roadmap: str, user_data: JobBuddyData) -> list[str]:
         return ["roadmap is empty"]
 
     # Structure
-    lines = {line.strip() for line in text.splitlines()}
+    lines = {_heading_key(line) for line in roadmap.splitlines()} - {""}
     for heading in REQUIRED_HEADINGS:
-        if heading.lower() not in lines:
+        if _heading_key(heading) not in lines:
             problems.append(f"missing section: {heading}")
     plan_rows = [
         line for line in _section_body(roadmap, "## 8-week plan").splitlines()
@@ -198,13 +224,13 @@ def validate_roadmap(roadmap: str, user_data: JobBuddyData) -> list[str]:
     week_rows = max(len(plan_rows) - 1, 0)  # minus the header row
     if week_rows != PLAN_WEEKS:
         problems.append(f"8-week plan has {week_rows} week rows, expected {PLAN_WEEKS}")
-    checklist = _section_body(roadmap, "## This week's checklist").count("- [ ]")
+    checklist = len(_CHECKBOX.findall(_section_body(roadmap, "## This week's checklist")))
     if checklist < MIN_CHECKLIST_ITEMS:
         problems.append(f"checklist has {checklist} items, expected at least {MIN_CHECKLIST_ITEMS}")
 
     # Grounding
     total = len(user_data.job_sources)
-    for match in _COUNT_CLAIM.finditer(roadmap):
+    for match in _COUNT_CLAIM.finditer(canonical(roadmap)):
         n, m = int(match.group(1)), int(match.group(2))
         if m != total or n > m:
             problems.append(
@@ -216,7 +242,8 @@ def validate_roadmap(roadmap: str, user_data: JobBuddyData) -> list[str]:
 
     # Completeness
     for heading in REQUIRED_HEADINGS[1:]:
-        if heading.lower() in lines and len(_section_body(roadmap, heading).strip()) < MIN_SECTION_CHARS:
+        present = _heading_key(heading) in lines
+        if present and len(_section_body(roadmap, heading).strip()) < MIN_SECTION_CHARS:
             problems.append(f"empty section: {heading}")
 
     # Consistency with confirmed data
@@ -226,7 +253,7 @@ def validate_roadmap(roadmap: str, user_data: JobBuddyData) -> list[str]:
     for placeholder in _PLACEHOLDERS:
         if placeholder in text:
             problems.append(f"placeholder text: {placeholder}")
-    if _MONEY.search(roadmap):
+    if _MONEY.search(canonical(roadmap)):
         problems.append("contains salary or money figures")
     return problems
 
@@ -257,8 +284,13 @@ def find_contradictions(roadmap: str, user_data: JobBuddyData) -> list[str]:
     gap_lines = _section_body(roadmap, "## Skill gaps to close").lower().splitlines()
     for requirement in user_data.requirements:
         wrong_words = _PRIORITY_WORDS[requirement.priority.value]
+        right_words = _PRIORITY_WORDS[_OTHER_PRIORITY[requirement.priority.value]]
         for line in gap_lines:
-            if requirement.name.lower() in line and any(w in line for w in wrong_words):
+            if requirement.name.lower() not in line:
+                continue
+            # A line that also states the correct priority (e.g. one sentence listing a
+            # must-have and a nice-to-have together) is not a contradiction.
+            if any(w in line for w in wrong_words) and not any(w in line for w in right_words):
                 problems.append(
                     f"contradiction: '{requirement.name}' is "
                     f"{requirement.priority.value.replace('_', '-')} in the postings, "
