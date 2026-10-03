@@ -33,6 +33,19 @@ def _confirmed_recap(section_states: dict[str, SectionState], current: SectionID
     return "\n".join(lines)
 
 
+def _unsaved_details(section_states: dict[str, SectionState], current: SectionID) -> str:
+    """Unverified structured fields of other confirmed sections, for the reply prompt."""
+    lines = []
+    for section_id in SectionID:
+        state = section_states.get(section_id.value)
+        if section_id == current or state is None:
+            continue
+        if state.status == SectionStatus.DONE and state.unverified_fields:
+            name = get_section_template(section_id).name
+            lines.append(f"- {name}: {', '.join(state.unverified_fields)}")
+    return "\n".join(lines)
+
+
 def build_context_packet(
     section_id: SectionID | str, section_states: dict[str, SectionState]
 ) -> ContextPacket:
@@ -58,6 +71,13 @@ def build_context_packet(
         parts.append(
             "UNCONFIRMED DRAFT FOR THIS SECTION (continue from it, do not start over):\n"
             + draft.plain_text
+        )
+
+    gaps = _unsaved_details(section_states, sid)
+    if gaps:
+        parts.append(
+            "DETAILS NOT SAVED YET (confirmed earlier, but could not be stored as data). "
+            "If one matters for the current step, ask the user to restate it once:\n" + gaps
         )
 
     if template.next_section is not None:

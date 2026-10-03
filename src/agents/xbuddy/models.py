@@ -42,6 +42,8 @@ class SectionState(BaseModel):
     # Structured fields the decision reported as covered but extraction could not find.
     # covered_fields is the model's claim; extraction is the check on the actual data.
     unverified_fields: list[str] = Field(default_factory=list)
+    # How many times extraction has run for the current confirmation (bounds retries).
+    extraction_attempts: int = 0
 
 
 class ContextPacket(BaseModel):

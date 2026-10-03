@@ -127,6 +127,42 @@ async def test_confirmed_state_survives_restart_and_conversation_resumes(
     assert "Background: " + SUMMARY in resumed["context_packet"].system_prompt
 
 
+@pytest.mark.asyncio
+async def test_failed_extraction_is_recovered_after_a_restart(tmp_path, monkeypatch, store):
+    """Provider down at confirmation, app restarts, next turn recovers the profile."""
+    db = tmp_path / "jobbuddy.db"
+    config = cfg("t-recover")
+
+    class Down(FakeListChatModel):
+        async def ainvoke(self, input, config=None, **kwargs):
+            raise TimeoutError("provider timed out")
+
+    async with app(db) as graph:
+        await draft_turn(graph, config, monkeypatch)
+        models(monkeypatch, "Thanks! What job titles are you aiming for next?",
+               {"router_directive": "next", "is_satisfied": True, "should_save_content": True,
+                "section_summary": SUMMARY, "covered_fields": BG_FIELDS})
+        monkeypatch.setattr(extraction_mod, "get_chat_model",
+                            lambda config=None: Down(responses=["x"]))
+        failed = await graph.ainvoke({"messages": [HumanMessage("Yes, looks good")]}, config)
+
+    assert failed["section_states"]["background"].status == SectionStatus.DONE
+    assert failed["section_states"]["background"].unverified_fields
+    assert failed["user_data"].profile.current_role is None
+
+    async with app(db) as restarted:  # provider is back after the restart
+        models(monkeypatch, "Got it. Which city or region?",
+               {"router_directive": "stay", "should_save_content": True,
+                "section_summary": "Backend roles"},
+               {"current_role": "Backend Developer", "role_history": ["Junior Web Developer"],
+                "years_experience": 3, "skills": ["Python"], "education": "MSc CS"})
+        resumed = await restarted.ainvoke({"messages": [HumanMessage("Backend roles")]}, config)
+
+    assert resumed["section_states"]["background"].unverified_fields == []
+    assert resumed["user_data"].profile.current_role == "Backend Developer"
+    assert resumed["current_section"] == SectionID.TARGET_ROLE
+
+
 # --- isolation -------------------------------------------------------------------------------
 
 @pytest.mark.asyncio
