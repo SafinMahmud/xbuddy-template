@@ -178,7 +178,9 @@ class Settings(BaseSettings):
                     self.AVAILABLE_MODELS.update(set(VertexAIModelName))
                 case Provider.GROQ:
                     if self.DEFAULT_MODEL is None:
-                        self.DEFAULT_MODEL = GroqModelName.LLAMA_31_8B
+                        # gpt-oss-120b is available on Groq's free plan. The Llama models
+                        # are Enterprise-tier and return model_not_found on a free account.
+                        self.DEFAULT_MODEL = GroqModelName.GPT_OSS_120B
                     self.AVAILABLE_MODELS.update(set(GroqModelName))
                 case Provider.AWS:
                     if self.DEFAULT_MODEL is None:

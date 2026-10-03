@@ -116,6 +116,20 @@ class ChatAgentDecision(BaseModel):
         False,
         description="Whether to save the current section content.",
     )
+    section_summary: str | None = Field(
+        None,
+        description=(
+            "Short plain-text summary of everything collected so far in the current "
+            "section. Saved as the draft, and as the confirmed answer on 'next'."
+        ),
+    )
+    covered_fields: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Names of the section's completion-checklist items that have been collected. "
+            "'next' is refused in code unless every required item is listed."
+        ),
+    )
 
     @field_validator("router_directive")
     def validate_router_directive(cls, v):
@@ -134,6 +148,8 @@ class ChatAgentOutput(BaseModel):
     user_satisfaction_feedback: str | None = None
     is_satisfied: bool | None = None
     should_save_content: bool = False
+    section_summary: str | None = None
+    covered_fields: list[str] = Field(default_factory=list)
 
     @field_validator("router_directive")
     def validate_router_directive(cls, v):

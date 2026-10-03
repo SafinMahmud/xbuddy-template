@@ -27,6 +27,8 @@ class SectionTemplate(BaseModel):
     validation_rules: list[ValidationRule] = Field(default_factory=list)
     required_fields: list[str] = Field(default_factory=list)
     next_section: SectionID | None = None
+    # First question asked when the user arrives in this section.
+    opening_question: str = ""
 
 
 BASE_RULES = """You are JobBuddy, a practical, encouraging job-search coach. You guide the
@@ -45,9 +47,11 @@ SECTION FLOW
   and steer back to the current section's next open question.
 - When every completion criterion for the section is met, present a short
   summary and ask the user to confirm it or correct it.
-- Only move on after the user explicitly confirms the summary.
-- If the user wants to change an earlier answer, acknowledge it; the system
-  will reopen that section.
+- Only move on after the user explicitly confirms the summary. When they
+  confirm, thank them in one short sentence and then ask the opening question
+  of the next section (given below), in the same reply.
+- If the user wants to change an earlier answer, acknowledge it and ask what
+  they would like to change; the system will reopen that section.
 - For a returning user, recap only the confirmed information shown below, then
   continue from the next unanswered question. Never restart a section or
   re-ask something already answered.

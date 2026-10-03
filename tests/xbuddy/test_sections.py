@@ -87,3 +87,17 @@ async def test_get_context_tool_accepts_serialized_state():
     )
     assert result["section_id"] == SectionID.TARGET_ROLE
     assert "SECTION: Target Role" in result["system_prompt"]
+
+
+@pytest.mark.parametrize("sid", list(SectionID))
+def test_every_section_has_an_opening_question(sid):
+    assert get_section_template(sid).opening_question.strip().endswith(("?", "."))
+
+
+def test_packet_hands_off_to_next_section_or_roadmap():
+    states = default_state()["section_states"]
+    bg = build_context_packet(SectionID.BACKGROUND, states).system_prompt
+    assert "next section is Target Role" in bg
+    assert SECTION_TEMPLATES[SectionID.TARGET_ROLE].opening_question in bg
+    last = build_context_packet(SectionID.INTERVIEW_PREP, states).system_prompt
+    assert "job search roadmap" in last

@@ -27,5 +27,6 @@ are identified and the user has confirmed the summary.
         "practice_plan",
         "stories",
     ],
+    opening_question="What kinds of interviews do you expect for these roles, for example behavioral, technical, or system design?",
     next_section=None,
 )

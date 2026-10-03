@@ -17,7 +17,7 @@ only acted on once. Like the other nodes, it returns only the keys it changes.
 import logging
 from typing import Any
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
 from ..enums import RouterDirective, SectionID, SectionStatus
@@ -49,9 +49,16 @@ def _enter(states: dict[str, SectionState], section_id: SectionID) -> dict[str, 
 
 
 def _switch_to(
-    target: SectionID, current: SectionID, states: dict[str, SectionState]
+    target: SectionID,
+    current: SectionID,
+    states: dict[str, SectionState],
+    messages: list | None = None,
 ) -> dict[str, Any]:
-    """Updates for moving into `target`: context, status, fresh short memory."""
+    """Updates for moving into `target`: context, status, fresh short memory.
+
+    Short memory restarts per section. It is seeded with the last AI message,
+    which already asked the new section's opening question.
+    """
     updates: dict[str, Any] = {
         "current_section": target,
         "section_states": states,
@@ -59,7 +66,8 @@ def _switch_to(
         "router_directive": RouterDirective.STAY.value,
     }
     if target != current:
-        updates["short_memory"] = []
+        last_ai = next((m for m in reversed(messages or []) if isinstance(m, AIMessage)), None)
+        updates["short_memory"] = [last_ai] if last_ai is not None else []
     return updates
 
 
@@ -95,7 +103,7 @@ async def router_node(state: XBuddyState, config: RunnableConfig) -> dict[str, A
                 "finished": True,
             }
         logger.info("router: %s done, advancing to %s", current.value, target.value)
-        return {**updates, **_switch_to(target, current, _enter(states, target))}
+        return {**updates, **_switch_to(target, current, _enter(states, target), msgs)}
 
     # --- modify:<section>: reopen an earlier section ------------------------------
     if directive.startswith(MODIFY_PREFIX):
@@ -119,7 +127,7 @@ async def router_node(state: XBuddyState, config: RunnableConfig) -> dict[str, A
 
         states = _with_status(states, target, SectionStatus.IN_PROGRESS)
         logger.info("router: reopening %s from %s", target.value, current.value)
-        return {**updates, **_switch_to(target, current, states)}
+        return {**updates, **_switch_to(target, current, states, msgs)}
 
     # --- stay (default) ---------------------------------------------------------------
     # Always rebuild the packet (cheap, no I/O) so it reflects the latest saved draft

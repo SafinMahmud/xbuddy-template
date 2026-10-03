@@ -101,6 +101,19 @@ async def test_next_marks_done_and_advances():
 
 
 @pytest.mark.asyncio
+async def test_next_seeds_short_memory_with_handoff_question():
+    handoff = AIMessage("Thanks! What job titles are you aiming for next?")
+    state = make_state(
+        SectionID.BACKGROUND,
+        {SectionID.BACKGROUND: SectionStatus.IN_PROGRESS},
+        router_directive="next",
+        messages=[HumanMessage("Yes, looks good"), handoff],
+    )
+    result = await router_node(state, CONFIG)
+    assert result["short_memory"] == [handoff]
+
+
+@pytest.mark.asyncio
 async def test_next_from_last_section_finishes():
     statuses = {sid: SectionStatus.DONE for sid in SectionID}
     statuses[SectionID.INTERVIEW_PREP] = SectionStatus.IN_PROGRESS

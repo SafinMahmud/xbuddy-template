@@ -27,5 +27,6 @@ weekly targets are defined and the user has confirmed the summary.
         "networking_plan",
         "weekly_targets",
     ],
+    opening_question="Based on your target role and gaps, what would you most like to improve first: your resume, your LinkedIn, or both?",
     next_section=SectionID.INTERVIEW_PREP,
 )
