@@ -1,0 +1,31 @@
+# Render Blueprint for the JobBuddy API (free plan).
+# Dashboard: New > Blueprint > pick this repo. Full steps: docs/deployment.md
+services:
+  - type: web
+    name: jobbuddy-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python src/run_service.py
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      # Secrets are typed into the Render dashboard, never committed.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: LANGCHAIN_API_KEY
+        sync: false
+      - key: LANGCHAIN_TRACING_V2
+        value: "true"
+      - key: LANGCHAIN_PROJECT
+        value: jobbuddy
+      # Free instances have no persistent disk: threads live until the instance
+      # sleeps or redeploys. For durable threads switch to Postgres (see the docs).
+      - key: DATABASE_TYPE
+        value: sqlite
+      - key: SQLITE_DB_PATH
+        value: /tmp/checkpoints.db
+      # AUTH_SECRET is not set, so the demo is open to signed-out visitors.
+      # Add it in the dashboard to require a bearer token on every API route.

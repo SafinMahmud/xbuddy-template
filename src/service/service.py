@@ -702,44 +702,10 @@ async def message_generator(
                             logger.info(f"🚫 SKIPPING internal tool_call message: {repr(message)}")
                             continue
                     
-                    # Skip messages that appear to be internal data extraction results
-                    # These might have content but are from structured output calls
-                    if isinstance(message, AIMessage) and message.content:
-                        # Check if content looks like field names or extracted data
-                        content_lower = message.content.lower() if isinstance(message.content, str) else ""
-                        extraction_fields = [
-                            # Interview fields
-                            'client_name', 'company_name', 'preferred_name', 'industry', 'specialty', 
-                            'career_highlight', 'client_outcomes', 'specialized_skills', 'awards_media',
-                            'published_content', 'notable_partners',
-                            # ICP fields
-                            'icp_nickname', 'icp_role_identity', 'icp_context_scale', 'icp_industry_sector_context',
-                            'icp_demographics', 'icp_interests', 'icp_values', 'icp_golden_insight',
-                            # Pain fields
-                            'pain1_symptom', 'pain1_struggle', 'pain1_cost', 'pain1_consequence',
-                            'pain2_symptom', 'pain2_struggle', 'pain2_cost', 'pain2_consequence',
-                            'pain3_symptom', 'pain3_struggle', 'pain3_cost', 'pain3_consequence',
-                            # Deep Fear fields
-                            'deep_fear', 'golden_insight',
-                            # Payoffs fields
-                            'payoff1_objective', 'payoff1_desire', 'payoff1_without', 'payoff1_resolution',
-                            'payoff2_objective', 'payoff2_desire', 'payoff2_without', 'payoff2_resolution',
-                            'payoff3_objective', 'payoff3_desire', 'payoff3_without', 'payoff3_resolution',
-                            # Signature Method fields
-                            'method_name', 'sequenced_principles', 'principle_descriptions', 'principles',
-                            # Mistakes fields
-                            'mistakes',
-                            # Prize fields
-                            'prize_statement', 'prize_category', 'refined_prize',
-                            # Social Pitch fields
-                            'user_name', 'user_position', 'business_category', 'target_customer', 
-                            'same_statement', 'fame_tier', 'fame_statement', 'achievement_details',
-                            'ideal_clients', 'broad_challenge', 'pain_statement', 'current_project_category',
-                            'project_description', 'aim_statement', 'vision_approach', 'bigger_vision', 'game_statement',
-                        ]
-                        if any(field in content_lower for field in extraction_fields):
-                            logger.debug(f"Skipping potential extraction data message: {message.content[:50]}...")
-                            continue
+                    # Replies are never filtered by their wording. JobBuddy's internal
+                    # calls (decision, extraction, roadmap) are tagged and never stored in
+                    # `messages`, so a keyword filter here could only drop real replies
+                    # (the template's list matched words like "industry" and "mistakes").
 
                     logger.info(f"🔧 CONVERTING message type: {type(message).__name__}")
                     chat_message = langchain_to_chat_message(message)
