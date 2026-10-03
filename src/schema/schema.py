@@ -203,6 +203,10 @@ class ChatHistoryInput(BaseModel):
 
 class ChatHistory(BaseModel):
     messages: list[ChatMessage]
+    section: dict[str, Any] | None = Field(
+        default=None,
+        description="Current section and progress, for resuming a conversation.",
+    )
 
 
 class InvokeResponse(BaseModel):

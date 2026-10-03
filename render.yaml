@@ -1,0 +1,44 @@
+# Render Blueprint for the JobBuddy API (free plan).
+# Dashboard: New > Blueprint > pick this repo. Full steps: docs/deployment.md
+#
+# DEMO ONLY. The service has no sign-in: anyone with the URL can use it, and anyone
+# who knows a thread id can read that thread. Set AUTH_SECRET before real use.
+databases:
+  # Durable conversation state. Free databases expire 30 days after creation.
+  - name: jobbuddy-db
+    plan: free
+    databaseName: jobbuddy
+    user: jobbuddy
+    ipAllowList: []  # no access from the internet, only from this service
+
+services:
+  - type: web
+    name: jobbuddy-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python src/run_service.py
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      # Secrets are typed into the Render dashboard, never committed.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: LANGCHAIN_API_KEY
+        sync: false
+      - key: LANGCHAIN_TRACING_V2
+        value: "true"
+      - key: LANGCHAIN_PROJECT
+        value: jobbuddy
+      # Checkpoints go to Postgres over Render's private network, so threads
+      # survive sleep, restarts and redeploys. The local default is SQLite.
+      - key: DATABASE_TYPE
+        value: postgres
+      - key: POSTGRES_URL
+        fromDatabase:
+          name: jobbuddy-db
+          property: connectionString
+      # AUTH_SECRET is not set, so the demo is open to signed-out visitors.
+      # Add it in the dashboard to require a bearer token on every API route.

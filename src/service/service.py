@@ -13,7 +13,6 @@ from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
-from starlette.requests import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -27,8 +26,9 @@ from langsmith import Client as LangsmithClient
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from agents import DEFAULT_AGENT, AgentGraph, get_agent, get_all_agent_info
-# TODO: import your agent initialization
-# TODO: import your section templates
+from agents.xbuddy.agent import initialize_xbuddy_state
+from agents.xbuddy.enums import SectionID, SectionStatus
+from agents.xbuddy.prompts import SECTION_TEMPLATES
 from core import settings
 from core.settings import DatabaseType
 # Removed: # DentApp (removed) integration
@@ -228,7 +228,37 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.info("✅ Realtime worker stopped")
 
 
-app = FastAPI(lifespan=lifespan)
+DEMO_NOTICE = (
+    "**Demo deployment. Do not enter personal or sensitive information.** "
+    "This instance has no sign-in: anyone with the URL can use it, and anyone who "
+    "knows a thread id can read that thread."
+)
+
+
+def access_mode() -> str:
+    """"open" when anyone can call the API, "protected" when a bearer token is required."""
+    return "protected" if settings.AUTH_SECRET else "open"
+
+
+def storage_info() -> dict[str, Any]:
+    """Where conversation state is checkpointed, and whether it survives a restart.
+
+    SQLite counts as not durable: on hosts with a temporary filesystem (Render's
+    free plan) the file is wiped whenever the instance sleeps, restarts or redeploys.
+    """
+    kind = settings.DATABASE_TYPE.value
+    return {"type": kind, "durable": settings.DATABASE_TYPE != DatabaseType.SQLITE}
+
+
+def api_description() -> str:
+    """Text shown at the top of the /docs page. An open deployment carries the demo notice."""
+    text = "Job search coach. Conversation endpoints: `/invoke`, `/stream`, `/history`."
+    if access_mode() == "open":
+        text += "\n\n" + DEMO_NOTICE
+    return text
+
+
+app = FastAPI(lifespan=lifespan, title="JobBuddy API", description=api_description())
 
 # Add CORS middleware to allow frontend requests
 app.add_middleware(
@@ -284,6 +314,38 @@ async def info() -> ServiceMetadata:
     )
 
 
+def section_progress(values: dict[str, Any]) -> dict[str, Any] | None:
+    """Current section and overall progress, attached to /invoke and /stream responses.
+
+    Purely informational, so it returns None instead of ever failing a request.
+    """
+    if not isinstance(values, dict) or values.get("current_section") is None:
+        return None
+    try:
+        section_id = SectionID(values["current_section"])
+    except ValueError:
+        return None
+    states = values.get("section_states", {})
+    state = states.get(section_id.value)
+    done = sum(1 for s in states.values() if s.status == SectionStatus.DONE)
+    return {
+        "id": section_id.value,
+        "name": SECTION_TEMPLATES[section_id].name,
+        "status": state.status.value if state else SectionStatus.PENDING.value,
+        "completed_sections": done,
+        "total_sections": len(SectionID),
+        "roadmap_ready": bool(values.get("roadmap")),
+    }
+
+
+def _parse_section_id(section_id: str) -> str | None:
+    """Validate a JobBuddy section id from a URL path."""
+    try:
+        return SectionID(section_id).value
+    except ValueError:
+        return None
+
+
 async def _handle_input(user_input: UserInput, agent: AgentGraph, agent_id: str) -> tuple[dict[str, Any], UUID]:
     """
     Parse user input and handle any required interrupt resumption.
@@ -291,7 +353,7 @@ async def _handle_input(user_input: UserInput, agent: AgentGraph, agent_id: str)
     """
     run_id = uuid4()
     thread_id = user_input.thread_id
-    user_id = user_input.user_id
+    user_id = user_input.user_id or 1
 
     callbacks = []
     if settings.LANGFUSE_TRACING:
@@ -463,24 +525,9 @@ async def invoke(user_input: UserInput, agent_id: str = DEFAULT_AGENT) -> Invoke
 
         # Get the latest state to include section data
         state = await agent.aget_state(config=kwargs["config"])
-        if "current_section" in state.values:
-            current_section_enum = state.values["current_section"]
-            current_section_id = current_section_enum.value  # Use the string value
-            section_state = state.values.get("section_states", {}).get(current_section_id)
-            # Choose the right section templates based on agent_id
-            if agent_id == "xbuddy":
-                section_templates = FOUNDER_BUDDY_TEMPLATES
-            else:
-                raise ValueError(f"Unknown agent: {agent_id}")
-            
-            section_template = section_templates.get(current_section_id)
-
-            section_data = {
-                "database_id": SECTION_ID_MAPPING.get(current_section_id),
-                "name": section_template.name if section_template else "Unknown Section",
-                "status": section_state.status.value if section_state else "pending",
-            }
-            output.custom_data["section"] = section_data
+        progress = section_progress(state.values)
+        if progress:
+            output.custom_data["section"] = progress
 
         invoke_response = InvokeResponse(
             output=output,
@@ -685,44 +732,10 @@ async def message_generator(
                             logger.info(f"🚫 SKIPPING internal tool_call message: {repr(message)}")
                             continue
                     
-                    # Skip messages that appear to be internal data extraction results
-                    # These might have content but are from structured output calls
-                    if isinstance(message, AIMessage) and message.content:
-                        # Check if content looks like field names or extracted data
-                        content_lower = message.content.lower() if isinstance(message.content, str) else ""
-                        extraction_fields = [
-                            # Interview fields
-                            'client_name', 'company_name', 'preferred_name', 'industry', 'specialty', 
-                            'career_highlight', 'client_outcomes', 'specialized_skills', 'awards_media',
-                            'published_content', 'notable_partners',
-                            # ICP fields
-                            'icp_nickname', 'icp_role_identity', 'icp_context_scale', 'icp_industry_sector_context',
-                            'icp_demographics', 'icp_interests', 'icp_values', 'icp_golden_insight',
-                            # Pain fields
-                            'pain1_symptom', 'pain1_struggle', 'pain1_cost', 'pain1_consequence',
-                            'pain2_symptom', 'pain2_struggle', 'pain2_cost', 'pain2_consequence',
-                            'pain3_symptom', 'pain3_struggle', 'pain3_cost', 'pain3_consequence',
-                            # Deep Fear fields
-                            'deep_fear', 'golden_insight',
-                            # Payoffs fields
-                            'payoff1_objective', 'payoff1_desire', 'payoff1_without', 'payoff1_resolution',
-                            'payoff2_objective', 'payoff2_desire', 'payoff2_without', 'payoff2_resolution',
-                            'payoff3_objective', 'payoff3_desire', 'payoff3_without', 'payoff3_resolution',
-                            # Signature Method fields
-                            'method_name', 'sequenced_principles', 'principle_descriptions', 'principles',
-                            # Mistakes fields
-                            'mistakes',
-                            # Prize fields
-                            'prize_statement', 'prize_category', 'refined_prize',
-                            # Social Pitch fields
-                            'user_name', 'user_position', 'business_category', 'target_customer', 
-                            'same_statement', 'fame_tier', 'fame_statement', 'achievement_details',
-                            'ideal_clients', 'broad_challenge', 'pain_statement', 'current_project_category',
-                            'project_description', 'aim_statement', 'vision_approach', 'bigger_vision', 'game_statement',
-                        ]
-                        if any(field in content_lower for field in extraction_fields):
-                            logger.debug(f"Skipping potential extraction data message: {message.content[:50]}...")
-                            continue
+                    # Replies are never filtered by their wording. JobBuddy's internal
+                    # calls (decision, extraction, roadmap) are tagged and never stored in
+                    # `messages`, so a keyword filter here could only drop real replies
+                    # (the template's list matched words like "industry" and "mistakes").
 
                     logger.info(f"🔧 CONVERTING message type: {type(message).__name__}")
                     chat_message = langchain_to_chat_message(message)
@@ -766,35 +779,9 @@ async def message_generator(
         # Always send section data at the end of the stream
         try:
             state = await agent.aget_state(config=kwargs["config"])
-            if "current_section" in state.values:
-                current_section_enum = state.values["current_section"]
-                current_section_id = current_section_enum.value  # Use the string value
-                section_state = state.values.get("section_states", {}).get(current_section_id)
-                
-                # Choose the right section templates based on agent_id
-                if agent_id == "mission-pitch":
-                    section_templates = MISSION_PITCH_TEMPLATES
-                elif agent_id == "social-pitch":
-                    section_templates = SOCIAL_PITCH_TEMPLATES
-                elif agent_id == "signature-pitch":
-                    section_templates = SIGNATURE_PITCH_TEMPLATES
-                elif agent_id == "special-report":
-                    section_templates = SPECIAL_REPORT_TEMPLATES
-                elif agent_id == "concept-pitch":
-                    section_templates = CONCEPT_PITCH_TEMPLATES
-                elif agent_id == "xbuddy":
-                    section_templates = FOUNDER_BUDDY_TEMPLATES
-                else:  # default to value_canvas
-                    section_templates = VALUE_CANVAS_TEMPLATES
-                
-                section_template = section_templates.get(current_section_id)
-
-                section_data = {
-                    "database_id": SECTION_ID_MAPPING.get(current_section_id),
-                    "name": section_template.name if section_template else "Unknown Section",
-                    "status": section_state.status.value if section_state else "pending",
-                }
-                yield f"data: {json.dumps({'type': 'section', 'content': section_data})}\n\n"
+            progress = section_progress(state.values)
+            if progress:
+                yield f"data: {json.dumps({'type': 'section', 'content': progress})}\n\n"
         except Exception as e:
             logger.error(f"Error getting section data: {e}")
 
@@ -885,37 +872,28 @@ async def feedback(feedback: Feedback) -> FeedbackResponse:
 
 
 @router.post("/history")
-def history(input: ChatHistoryInput) -> ChatHistory:
-    """
-    Get chat history.
-    """
-    # Log history request
-    logger.info(f"=== HISTORY_REQUEST: thread_id={input.thread_id} ===")
+async def history(input: ChatHistoryInput) -> ChatHistory:
+    """Chat history plus section progress, so a returning user resumes where they left off.
 
-    # TODO: Hard-coding DEFAULT_AGENT here is wonky
+    Async because the configured checkpointers (SQLite, Postgres) are async.
+    """
+    logger.info(f"=== HISTORY_REQUEST: thread_id={input.thread_id} ===")
     agent: AgentGraph = get_agent(DEFAULT_AGENT)
     try:
-        state_snapshot = agent.get_state(
+        state_snapshot = await agent.aget_state(
             config=RunnableConfig(configurable={"thread_id": input.thread_id})
         )
-
-        # Check if state exists and has messages
         if not state_snapshot.values:
             logger.warning(f"HISTORY_WARNING: No state found for thread_id={input.thread_id}")
             return ChatHistory(messages=[])
 
         messages: list[AnyMessage] = state_snapshot.values.get("messages", [])
-        chat_messages: list[ChatMessage] = [langchain_to_chat_message(m) for m in messages]
-
-        # Log successful history response
-        logger.info(f"=== HISTORY_SUCCESS: thread_id={input.thread_id} ===")
+        chat_messages = [langchain_to_chat_message(m) for m in messages]
         logger.info(f"HISTORY_SUCCESS: message_count={len(chat_messages)}")
-
-        return ChatHistory(messages=chat_messages)
+        return ChatHistory(messages=chat_messages, section=section_progress(state_snapshot.values))
     except Exception as e:
-        logger.error(f"=== HISTORY_ERROR: thread_id={input.thread_id} ===")
-        logger.error(f"HISTORY_ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail="Unexpected error")
+        logger.error(f"HISTORY_ERROR: thread_id={input.thread_id}: {e}")
+        raise HTTPException(status_code=500, detail="Unexpected error") from e
 
 
 @router.get("/section_states/{agent_id}/{section_id}")
@@ -944,7 +922,7 @@ async def notify_section_update(
     logger.info(f"SECTION_UPDATE_REQUEST: thread_id={thread_id}")
 
     # Convert section_id integer to string identifier for internal use
-    section_id_str = get_section_string_id(section_id)
+    section_id_str = _parse_section_id(section_id)
     if not section_id_str:
         raise HTTPException(status_code=422, detail=f"Invalid section_id: {section_id}")
 
@@ -954,7 +932,7 @@ async def notify_section_update(
     
     # Choose the right section templates based on agent_id
     if agent_id == "xbuddy":
-        section_templates = FOUNDER_BUDDY_TEMPLATES
+        section_templates = {sid.value: t for sid, t in SECTION_TEMPLATES.items()}
     else:
         raise ValueError(f"Unknown agent: {agent_id}")
     
@@ -1026,7 +1004,7 @@ async def sync_section(
     logger.info(f"SYNC_SECTION_REQUEST: thread_id={thread_id}")
 
     # Convert section_id integer to string identifier for internal use
-    section_id_str = get_section_string_id(section_id)
+    section_id_str = _parse_section_id(section_id)
     if not section_id_str:
         raise HTTPException(status_code=422, detail=f"Invalid section_id: {section_id}")
 
@@ -1479,32 +1457,6 @@ async def get_agent_state(
         logger.error(f"Error getting agent state: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error getting agent state: {str(e)}")
 
-    # Execute sync
-    try:
-        result = await sync_section_from_database(
-            user_id=user_id,
-            thread_id=thread_id,
-            section_id=section_id_str,
-            agent_graph=agent
-        )
-
-        # Log successful sync
-        logger.info(f"=== SYNC_SECTION_SUCCESS: agent_id={agent_id}, section_id={section_id} (string_id={section_id_str}) ===")
-        logger.info(f"SYNC_SECTION_SUCCESS: extracted_fields={result.get('extracted_fields', [])}")
-        logger.info(f"SYNC_SECTION_SUCCESS: content_length={result.get('content_length', 0)}")
-
-        return result
-
-    except ValueError as e:
-        logger.error(f"=== SYNC_SECTION_VALIDATION_ERROR: {str(e)} ===")
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        logger.error(f"=== SYNC_SECTION_ERROR: agent_id={agent_id}, section_id={section_id} ===")
-        logger.error(f"SYNC_SECTION_ERROR: {str(e)}")
-        logger.error(f"SYNC_SECTION_ERROR: user_id={user_id}")
-        logger.error(f"SYNC_SECTION_ERROR: thread_id={thread_id}")
-        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
-
 
 @router.post("/refine_section/{agent_id}/{section_id}")
 async def refine_section(
@@ -1549,7 +1501,7 @@ async def refine_section(
     logger.info(f"REFINE_SECTION_REQUEST: refinement_prompt={refinement_prompt[:100]}...")
 
     # Convert section_id integer to string identifier for internal use
-    section_id_str = get_section_string_id(section_id)
+    section_id_str = _parse_section_id(section_id)
     if not section_id_str:
         raise HTTPException(status_code=422, detail=f"Invalid section_id: {section_id}")
 
@@ -1563,38 +1515,16 @@ async def refine_section(
         detail=f"Refine not supported for agent: {agent_id}. This feature is not available for xbuddy."
     )
 
-    # Execute refinement
-    try:
-        result = await refine_section_content(
-            user_id=user_id,
-            thread_id=thread_id,
-            section_id=section_id_str,
-            refinement_prompt=refinement_prompt,
-            agent_graph=agent
-        )
-
-        # Log successful refinement
-        logger.info(f"=== REFINE_SECTION_SUCCESS: agent_id={agent_id}, section_id={section_id} (string_id={section_id_str}) ===")
-        logger.info(f"REFINE_SECTION_SUCCESS: refined_content_length={len(result.get('refined_content', {}).get('plain_text', ''))}")
-
-        return result
-
-    except ValueError as e:
-        logger.error(f"=== REFINE_SECTION_VALIDATION_ERROR: {str(e)} ===")
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        logger.error(f"=== REFINE_SECTION_ERROR: agent_id={agent_id}, section_id={section_id} ===")
-        logger.error(f"REFINE_SECTION_ERROR: {str(e)}")
-        logger.error(f"REFINE_SECTION_ERROR: user_id={user_id}")
-        logger.error(f"REFINE_SECTION_ERROR: thread_id={thread_id}")
-        raise HTTPException(status_code=500, detail=f"Refine failed: {str(e)}")
-
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
 
-    health_status = {"status": "ok"}
+    health_status: dict[str, Any] = {
+        "status": "ok",
+        "access": access_mode(),
+        "storage": storage_info(),
+    }
 
     if settings.LANGFUSE_TRACING:
         try:
@@ -1695,171 +1625,30 @@ async def subscribe_to_realtime(
         }
 
 
-@router.get("/business_plan/{agent_id}")
-async def get_business_plan(
-    agent_id: str,
-    user_id: int,
-    thread_id: str,
-    request: Request,
-):
-    """
-    Get business plan from database for xbuddy agent.
-    
-    Args:
-        agent_id: Agent identifier (must be "xbuddy")
-        user_id: User identifier
-        thread_id: Thread/conversation identifier
-        request: FastAPI Request object (for accessing app.state)
-    
-    Returns:
-        Business plan document from database
-    """
-    if agent_id != "xbuddy":
-        raise HTTPException(
-            status_code=422,
-            detail=f"Business plan retrieval only supported for 'xbuddy' agent"
-        )
-    
-    logger.info(f"=== GET_BUSINESS_PLAN_REQUEST: agent_id={agent_id} ===")
-    logger.info(f"GET_BUSINESS_PLAN: user_id={user_id}, thread_id={thread_id}")
-    
-    # Subscribe to Realtime for this thread if enabled
-    # This ensures that when user opens BusinessPlanEditor, subscription is established
-    if settings.USE_SUPABASE_REALTIME and hasattr(request.app.state, 'realtime_worker'):
-        realtime_worker = request.app.state.realtime_worker
-        try:
-            await realtime_worker.subscribe_to_thread(
-                user_id=user_id,
-                thread_id=thread_id,
-                agent_id=agent_id
-            )
-            logger.info(f"✅ GET_BUSINESS_PLAN: Realtime subscription established for thread {thread_id}")
-        except Exception as e:
-            logger.warning(f"⚠️ GET_BUSINESS_PLAN: Failed to subscribe to Realtime for thread {thread_id}: {e}")
-    
-    try:
-        from integrations.supabase import SupabaseClient
-        import asyncio
-        
-        supabase = SupabaseClient()
-        loop = asyncio.get_event_loop()
-        
-        plan = await loop.run_in_executor(
-            None,
-            lambda: supabase.get_business_plan(user_id, thread_id)
-        )
-        
-        if plan:
-            logger.info(f"=== GET_BUSINESS_PLAN_SUCCESS ===")
-            return {
-                "success": True,
-                "business_plan": plan.get("content"),
-                "markdown_content": plan.get("markdown_content"),
-                "created_at": plan.get("created_at"),
-                "updated_at": plan.get("updated_at")
-            }
-        else:
-            return {
-                "success": False,
-                "message": "Business plan not found"
-            }
-    except ImportError:
-        logger.debug("Supabase not configured, checking agent state")
-        # Fallback to agent state if Supabase not configured
-        agent: AgentGraph = get_agent(agent_id)
-        config = RunnableConfig(configurable={"thread_id": thread_id, "user_id": user_id})
-        state_snapshot = await agent.aget_state(config=config)
-        state_values = state_snapshot.values if state_snapshot.values else {}
-        
-        if state_values.get("business_plan"):
-            return {
-                "success": True,
-                "business_plan": state_values["business_plan"],
-                "message": "Business plan retrieved from agent state"
-            }
-        else:
-            return {
-                "success": False,
-                "message": "Business plan not found"
-            }
-    except Exception as e:
-        logger.error(f"=== GET_BUSINESS_PLAN_ERROR ===")
-        logger.error(f"GET_BUSINESS_PLAN_ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get business plan: {str(e)}")
+@router.get("/roadmap/{agent_id}")
+@router.get("/business_plan/{agent_id}")  # kept so the template frontend keeps working
+async def get_roadmap(agent_id: str, thread_id: str, user_id: int = 1) -> dict[str, Any]:
+    """Return the thread's job search roadmap and section progress.
 
-
-@router.post("/generate_business_plan/{agent_id}")
-async def generate_business_plan(
-    agent_id: str,
-    user_id: int,
-    thread_id: str,
-):
+    The checkpointed graph state is the source of truth. The roadmap is generated
+    by the graph's implementation node once all five sections are confirmed, so
+    there is no separate "generate" endpoint.
     """
-    Manually trigger business plan generation for xbuddy agent.
-    
-    This endpoint generates a comprehensive business plan based on all collected conversation data.
-    
-    Args:
-        agent_id: Agent identifier (must be "xbuddy")
-        user_id: User identifier
-        thread_id: Thread/conversation identifier
-    
-    Returns:
-        Business plan document in markdown format
-    """
-    if agent_id != "xbuddy":
-        raise HTTPException(
-            status_code=422,
-            detail=f"Business plan generation only supported for 'xbuddy' agent"
-        )
-    
-    logger.info(f"=== GENERATE_BUSINESS_PLAN_REQUEST: agent_id={agent_id} ===")
-    logger.info(f"GENERATE_BUSINESS_PLAN: user_id={user_id}, thread_id={thread_id}")
-    
     try:
         agent: AgentGraph = get_agent(agent_id)
-        config = RunnableConfig(configurable={"thread_id": thread_id, "user_id": user_id})
-        
-        # Get current state
-        state_snapshot = await agent.aget_state(config=config)
-        state_values = state_snapshot.values if state_snapshot.values else {}
-        
-        # Check if business plan already exists
-        if state_values.get("business_plan"):
-            logger.info("Business plan already exists, returning existing plan")
-            return {
-                "success": True,
-                "business_plan": state_values["business_plan"],
-                "message": "Business plan retrieved successfully"
-            }
-        
-        # Import and call generate_business_plan_node
-        from agents.xbuddy.nodes.generate_business_plan import generate_business_plan_node
-        
-        # Create a temporary state dict for the node
-        temp_state = dict(state_values)
-        temp_state = await generate_business_plan_node(temp_state, config)
-        
-        business_plan = temp_state.get("business_plan")
-        
-        if business_plan:
-            logger.info(f"=== GENERATE_BUSINESS_PLAN_SUCCESS ===")
-            logger.info(f"GENERATE_BUSINESS_PLAN: plan_length={len(business_plan)}")
-            return {
-                "success": True,
-                "business_plan": business_plan,
-                "message": "Business plan generated successfully"
-            }
-        else:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to generate business plan"
-            )
-            
-    except Exception as e:
-        logger.error(f"=== GENERATE_BUSINESS_PLAN_ERROR ===")
-        logger.error(f"GENERATE_BUSINESS_PLAN_ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to generate business plan: {str(e)}")
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Unknown agent: {agent_id}") from None
+    config = RunnableConfig(configurable={"thread_id": thread_id, "user_id": user_id})
+    snapshot = await agent.aget_state(config=config)
+    values = snapshot.values or {}
+    roadmap = values.get("roadmap")
+    return {
+        "success": bool(roadmap),
+        "roadmap": roadmap,
+        "business_plan": roadmap,  # alias for the template frontend
+        "section": section_progress(values),
+        "message": None if roadmap else "Roadmap not ready: finish all five sections first.",
+    }
 
 
 app.include_router(router)

@@ -1,19 +1,17 @@
 from functools import cache
+
 try:
     from typing import TypeAlias
 except ImportError:
     # Python 3.9 compatibility
     TypeAlias = str
 
-from langchain_anthropic import ChatAnthropic
-from langchain_aws import ChatBedrock
 from langchain_community.chat_models import FakeListChatModel
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_google_vertexai import ChatVertexAI
-from langchain_groq import ChatGroq
-from langchain_ollama import ChatOllama
-from langchain_openai import AzureChatOpenAI, ChatOpenAI
+from langchain_core.language_models.chat_models import BaseChatModel
 
+# Provider SDKs are imported inside get_model(), only for the provider in use.
+# Importing all of them at startup cost about 430 MB of memory (Vertex AI alone
+# about 230 MB), which does not fit a 512 MB free hosting instance.
 from core.models import (
     AllModelEnum,
     AnthropicModelName,
@@ -87,17 +85,7 @@ class FakeToolModel(FakeListChatModel):
         return self
 
 
-ModelT: TypeAlias = (
-    AzureChatOpenAI
-    | ChatOpenAI
-    | ChatAnthropic
-    | ChatGoogleGenerativeAI
-    | ChatVertexAI
-    | ChatGroq
-    | ChatBedrock
-    | ChatOllama
-    | FakeToolModel
-)
+ModelT: TypeAlias = BaseChatModel
 
 
 # Removed get_gpt5_model function - using standard get_model instead for better performance
@@ -120,12 +108,16 @@ def get_model(model_name: AllModelEnum | None = None, /) -> ModelT:
     max_tokens = LLMConfig.get_max_tokens_for_model(model_name)
 
     if model_name in OpenAIModelName:
+        from langchain_openai import ChatOpenAI
+
         # Use centralized config for all OpenAI models
         if max_tokens:
             return ChatOpenAI(model=api_model_name, temperature=temperature, max_tokens=max_tokens, streaming=True)
         else:
             return ChatOpenAI(model=api_model_name, temperature=temperature, streaming=True)
     if model_name in OpenAICompatibleName:
+        from langchain_openai import ChatOpenAI
+
         if not settings.COMPATIBLE_BASE_URL or not settings.COMPATIBLE_MODEL:
             raise ValueError("OpenAICompatible base url and endpoint must be configured")
 
@@ -138,6 +130,8 @@ def get_model(model_name: AllModelEnum | None = None, /) -> ModelT:
             openai_api_key=settings.COMPATIBLE_API_KEY,
         )
     if model_name in AzureOpenAIModelName:
+        from langchain_openai import AzureChatOpenAI
+
         if not settings.AZURE_OPENAI_API_KEY or not settings.AZURE_OPENAI_ENDPOINT:
             raise ValueError("Azure OpenAI API key and endpoint must be configured")
 
@@ -152,6 +146,8 @@ def get_model(model_name: AllModelEnum | None = None, /) -> ModelT:
             max_retries=3,
         )
     if model_name in DeepseekModelName:
+        from langchain_openai import ChatOpenAI
+
         return ChatOpenAI(
             model=api_model_name,
             temperature=temperature,
@@ -161,20 +157,32 @@ def get_model(model_name: AllModelEnum | None = None, /) -> ModelT:
             openai_api_key=settings.DEEPSEEK_API_KEY,
         )
     if model_name in AnthropicModelName:
+        from langchain_anthropic import ChatAnthropic
+
         return ChatAnthropic(model=api_model_name, temperature=temperature, max_tokens=max_tokens, streaming=True)
     if model_name in GoogleModelName:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
         return ChatGoogleGenerativeAI(model=api_model_name, temperature=temperature, max_tokens=max_tokens, streaming=True)
     if model_name in VertexAIModelName:
+        from langchain_google_vertexai import ChatVertexAI
+
         return ChatVertexAI(model=api_model_name, temperature=temperature, max_tokens=max_tokens, streaming=True)
     if model_name in GroqModelName:
+        from langchain_groq import ChatGroq
+
         # Use temperature 0.0 for LlamaGuard (deterministic), otherwise use default
         guard_temp = 0.0 if model_name == GroqModelName.LLAMA_GUARD_4_12B else temperature
         return ChatGroq(
             model=api_model_name, temperature=guard_temp, max_tokens=max_tokens, streaming=True
         )
     if model_name in AWSModelName:
+        from langchain_aws import ChatBedrock
+
         return ChatBedrock(model_id=api_model_name, temperature=temperature, max_tokens=max_tokens)
     if model_name in OllamaModelName:
+        from langchain_ollama import ChatOllama
+
         if settings.OLLAMA_BASE_URL:
             chat_ollama = ChatOllama(
                 model=settings.OLLAMA_MODEL, temperature=temperature, base_url=settings.OLLAMA_BASE_URL
@@ -183,6 +191,8 @@ def get_model(model_name: AllModelEnum | None = None, /) -> ModelT:
             chat_ollama = ChatOllama(model=settings.OLLAMA_MODEL, temperature=temperature)
         return chat_ollama
     if model_name in OpenRouterModelName:
+        from langchain_openai import ChatOpenAI
+
         return ChatOpenAI(
             model=api_model_name,
             temperature=temperature,

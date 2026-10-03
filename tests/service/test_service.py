@@ -170,7 +170,8 @@ def test_history(test_client, mock_agent) -> None:
     ANSWER = "The weather in Tokyo is 70 degrees."
     user_question = HumanMessage(content=QUESTION)
     agent_response = AIMessage(content=ANSWER)
-    mock_agent.get_state.return_value = StateSnapshot(
+    # /history is async now (the configured checkpointers are async).
+    mock_agent.aget_state.return_value = StateSnapshot(
         values={"messages": [user_question, agent_response]},
         next=(),
         config={},
