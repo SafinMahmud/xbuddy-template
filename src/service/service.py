@@ -228,7 +228,37 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.info("✅ Realtime worker stopped")
 
 
-app = FastAPI(lifespan=lifespan)
+DEMO_NOTICE = (
+    "**Demo deployment. Do not enter personal or sensitive information.** "
+    "This instance has no sign-in: anyone with the URL can use it, and anyone who "
+    "knows a thread id can read that thread."
+)
+
+
+def access_mode() -> str:
+    """"open" when anyone can call the API, "protected" when a bearer token is required."""
+    return "protected" if settings.AUTH_SECRET else "open"
+
+
+def storage_info() -> dict[str, Any]:
+    """Where conversation state is checkpointed, and whether it survives a restart.
+
+    SQLite counts as not durable: on hosts with a temporary filesystem (Render's
+    free plan) the file is wiped whenever the instance sleeps, restarts or redeploys.
+    """
+    kind = settings.DATABASE_TYPE.value
+    return {"type": kind, "durable": settings.DATABASE_TYPE != DatabaseType.SQLITE}
+
+
+def api_description() -> str:
+    """Text shown at the top of the /docs page. An open deployment carries the demo notice."""
+    text = "Job search coach. Conversation endpoints: `/invoke`, `/stream`, `/history`."
+    if access_mode() == "open":
+        text += "\n\n" + DEMO_NOTICE
+    return text
+
+
+app = FastAPI(lifespan=lifespan, title="JobBuddy API", description=api_description())
 
 # Add CORS middleware to allow frontend requests
 app.add_middleware(
@@ -1490,7 +1520,11 @@ async def refine_section(
 async def health_check():
     """Health check endpoint."""
 
-    health_status = {"status": "ok"}
+    health_status: dict[str, Any] = {
+        "status": "ok",
+        "access": access_mode(),
+        "storage": storage_info(),
+    }
 
     if settings.LANGFUSE_TRACING:
         try:

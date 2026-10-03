@@ -105,6 +105,11 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str | None = None
     POSTGRES_PORT: int | None = None
     POSTGRES_DB: str | None = None
+    # One connection URL instead of the five parts above (what hosts such as Render
+    # and Supabase hand out). When set, it wins.
+    POSTGRES_URL: SecretStr | None = None
+    # Used with the five parts. Managed databases need "require".
+    POSTGRES_SSLMODE: str = "require"
 
     # MongoDB Configuration
     MONGO_HOST: str | None = None

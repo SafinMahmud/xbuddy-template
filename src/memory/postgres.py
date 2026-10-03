@@ -31,7 +31,14 @@ class PostgresConnectionManager:
             self.initialized = True
     
     def get_connection_string(self) -> str:
-        """Build PostgreSQL connection string"""
+        """Build PostgreSQL connection string.
+
+        POSTGRES_URL is used as given when set (the host decides its own SSL
+        settings). Otherwise the URL is built from the five POSTGRES_* parts.
+        """
+        if settings.POSTGRES_URL is not None and settings.POSTGRES_URL.get_secret_value():
+            return settings.POSTGRES_URL.get_secret_value()
+
         if settings.POSTGRES_PASSWORD is None:
             raise ValueError("POSTGRES_PASSWORD is not set")
 
@@ -41,8 +48,27 @@ class PostgresConnectionManager:
             f"postgresql://{settings.POSTGRES_USER}:"
             f"{encoded_password}@"
             f"{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/"
-            f"{settings.POSTGRES_DB}?sslmode=require"
+            f"{settings.POSTGRES_DB}?sslmode={settings.POSTGRES_SSLMODE}"
         )
+
+    async def check_encoding(self) -> None:
+        """Refuse to run on a database that is not UTF8.
+
+        On a SQL_ASCII database the driver returns thread ids as bytes. The
+        checkpointer then writes the next turn under a different thread id, so
+        every turn after the first is silently lost. Failing at startup is safer.
+        """
+        async with self.pool.connection() as conn:
+            cur = await conn.execute("SHOW server_encoding")
+            row = await cur.fetchone()
+        encoding = row["server_encoding"] if isinstance(row, dict) else row[0]
+        if isinstance(encoding, bytes):  # exactly what a SQL_ASCII database returns
+            encoding = encoding.decode("ascii", "replace")
+        if encoding.upper() != "UTF8":
+            raise ValueError(
+                f"PostgreSQL database encoding is {encoding}, but UTF8 is required. "
+                "Create the database with ENCODING 'UTF8'."
+            )
     
     async def setup(self):
         """Initialize connection pool and related components"""
@@ -82,6 +108,12 @@ class PostgresConnectionManager:
         
         # Explicitly open connection pool
         await self.pool.open()
+        try:
+            await self.check_encoding()
+        except Exception:
+            await self.pool.close()
+            self.pool = None
+            raise
         
         # Initialize saver and store
         self.saver = AsyncPostgresSaver(self.pool)
@@ -149,11 +181,14 @@ def validate_postgres_config() -> None:
         "POSTGRES_DB",
     ]
     
+    if settings.POSTGRES_URL is not None and settings.POSTGRES_URL.get_secret_value():
+        return  # one URL replaces the five parts
+
     missing = [var for var in required_vars if not getattr(settings, var, None)]
     if missing:
         raise ValueError(
             f"Missing required PostgreSQL configuration: {', '.join(missing)}. "
-            "These environment variables must be set to use PostgreSQL persistence."
+            "Set POSTGRES_URL, or all five of these, to use PostgreSQL persistence."
         )
 
 

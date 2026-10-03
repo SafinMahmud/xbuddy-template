@@ -61,7 +61,11 @@ def calls(monkeypatch):
 
 
 @pytest.fixture
-def client(monkeypatch, tmp_path):
+def start_service(monkeypatch, tmp_path):
+    """Returns a context manager that starts the app. Each use is one process lifetime:
+    leaving it shuts the service down, entering it again is a restart."""
+    from contextlib import contextmanager
+
     from core.settings import DatabaseType, settings
 
     monkeypatch.setattr(settings, "DATABASE_TYPE", DatabaseType.SQLITE)
@@ -73,9 +77,19 @@ def client(monkeypatch, tmp_path):
     original = graph.checkpointer
     from service import app
 
-    with TestClient(app) as c:
-        yield c
+    @contextmanager
+    def start():
+        with TestClient(app) as c:
+            yield c
+
+    yield start
     graph.checkpointer = original
+
+
+@pytest.fixture
+def client(start_service):
+    with start_service() as c:
+        yield c
 
 
 def protect(monkeypatch):
@@ -237,6 +251,184 @@ def test_report_never_prints_the_token(client, calls, monkeypatch):
     assert SECRET not in report
 
 
+# --- durability: does a thread survive a restart? ----------------------------------
+
+
+def test_resume_passes_when_storage_survives_the_restart(start_service, calls):
+    with start_service() as before:
+        first = smoke_test.run_smoke(before)
+    assert first.passed, failed(first)
+
+    with start_service() as after:  # same database file: a restart, not a wipe
+        result = smoke_test.run_smoke(after, resume=first.thread_id)
+
+    assert result.passed, failed(result)
+    names = [c.name for c in result.checks]
+    assert "thread survived the restart" in names
+    assert "new turn was added to the same thread" in names
+    assert result.thread_id == first.thread_id
+
+
+def test_resume_fails_when_storage_was_wiped(start_service, calls, tmp_path):
+    with start_service() as before:
+        first = smoke_test.run_smoke(before)
+    for leftover in tmp_path.glob("checkpoints.db*"):  # what a temporary filesystem does
+        leftover.unlink()
+
+    with start_service() as after:
+        result = smoke_test.run_smoke(after, resume=first.thread_id)
+
+    assert not result.passed
+    assert failed(result) == ["thread survived the restart"]
+    (check,) = [c for c in result.checks if not c.ok]
+    assert "does not survive a restart" in check.detail
+    assert calls.count == 4  # the wiped thread is not silently restarted as a new one
+
+
+def test_resume_on_a_protected_deployment_needs_the_token(client, calls, monkeypatch):
+    protect(monkeypatch)
+    result = smoke_test.run_smoke(client, resume="smoke-anything")
+    assert not result.passed
+    assert "resume needs --token on a protected deployment" in failed(result)
+
+
+# --- the deployment describes itself ------------------------------------------------
+
+
+def test_health_reports_open_access_and_non_durable_sqlite(client):
+    body = client.get("/health").json()
+    assert body["status"] == "ok"
+    assert body["access"] == "open"
+    assert body["storage"] == {"type": "sqlite", "durable": False}
+
+
+def test_health_reports_protected_access_and_durable_postgres(client, monkeypatch):
+    from core.settings import DatabaseType, settings
+
+    protect(monkeypatch)
+    monkeypatch.setattr(settings, "DATABASE_TYPE", DatabaseType.POSTGRES)
+    body = client.get("/health").json()
+    assert body["access"] == "protected"
+    assert body["storage"] == {"type": "postgres", "durable": True}
+    assert SECRET not in json.dumps(body)
+
+
+def test_docs_page_carries_the_demo_notice_only_when_open(monkeypatch):
+    from core.settings import settings
+    from service.service import DEMO_NOTICE, api_description
+
+    monkeypatch.setattr(settings, "AUTH_SECRET", None)
+    assert DEMO_NOTICE in api_description()
+    assert "Do not enter personal or sensitive information" in api_description()
+    protect(monkeypatch)
+    assert DEMO_NOTICE not in api_description()
+
+
+def test_report_shows_storage_and_thread_so_a_reader_sees_the_limit(client, calls):
+    result = smoke_test.run_smoke(client)
+    report = smoke_test.format_report(result, "http://test")
+    assert "Storage: sqlite (NOT durable, threads are lost on restart)" in report
+    assert f"Thread: {result.thread_id}" in report
+
+
+# --- Postgres configuration ---------------------------------------------------------
+
+
+@pytest.fixture
+def pg_settings(monkeypatch):
+    from core.settings import settings
+
+    for key in ("POSTGRES_URL", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_HOST",
+                "POSTGRES_PORT", "POSTGRES_DB"):
+        monkeypatch.setattr(settings, key, None)
+    monkeypatch.setattr(settings, "POSTGRES_SSLMODE", "require")
+    return settings
+
+
+def test_postgres_url_is_used_as_given(pg_settings, monkeypatch):
+    from memory.postgres import pg_manager, validate_postgres_config
+
+    url = "postgresql://jobbuddy:pw@dpg-abc-a/jobbuddy"
+    monkeypatch.setattr(pg_settings, "POSTGRES_URL", SecretStr(url))
+
+    validate_postgres_config()  # the five parts are not needed
+    assert pg_manager.get_connection_string() == url
+
+
+def test_postgres_parts_build_a_url_with_ssl_and_an_escaped_password(pg_settings, monkeypatch):
+    from memory.postgres import pg_manager, validate_postgres_config
+
+    monkeypatch.setattr(pg_settings, "POSTGRES_USER", "postgres.ref")
+    monkeypatch.setattr(pg_settings, "POSTGRES_PASSWORD", SecretStr("p@ss/word"))
+    monkeypatch.setattr(pg_settings, "POSTGRES_HOST", "pooler.example.com")
+    monkeypatch.setattr(pg_settings, "POSTGRES_PORT", 5432)
+    monkeypatch.setattr(pg_settings, "POSTGRES_DB", "postgres")
+
+    validate_postgres_config()
+    assert pg_manager.get_connection_string() == (
+        "postgresql://postgres.ref:p%40ss%2Fword@pooler.example.com:5432/postgres?sslmode=require"
+    )
+
+
+def test_postgres_config_error_names_what_is_missing_without_secrets(pg_settings, monkeypatch):
+    from memory.postgres import validate_postgres_config
+
+    monkeypatch.setattr(pg_settings, "POSTGRES_PASSWORD", SecretStr("hunter2"))
+    with pytest.raises(ValueError) as error:
+        validate_postgres_config()
+    assert "POSTGRES_HOST" in str(error.value)
+    assert "POSTGRES_URL" in str(error.value)
+    assert "hunter2" not in str(error.value)
+
+
+class _FakePool:
+    """Stands in for the connection pool: answers SHOW server_encoding."""
+
+    def __init__(self, encoding):
+        self.encoding = encoding
+
+    def connection(self):
+        pool = self
+
+        class _Conn:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def execute(self, query):
+                assert query == "SHOW server_encoding"
+
+                class _Cursor:
+                    async def fetchone(self):
+                        return {"server_encoding": pool.encoding}
+
+                return _Cursor()
+
+        return _Conn()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "encoding,accepted",
+    [("UTF8", True), ("SQL_ASCII", False), (b"SQL_ASCII", False)],  # the driver returns bytes there
+)
+async def test_postgres_startup_refuses_a_database_that_is_not_utf8(
+    monkeypatch, encoding, accepted
+):
+    # Found with a live SQL_ASCII database: thread ids come back as bytes and every
+    # turn after the first is written under a different thread id, silently lost.
+    from memory.postgres import pg_manager
+
+    monkeypatch.setattr(pg_manager, "pool", _FakePool(encoding))
+    if accepted:
+        await pg_manager.check_encoding()
+    else:
+        with pytest.raises(ValueError, match="encoding is SQL_ASCII, but UTF8 is required"):
+            await pg_manager.check_encoding()
+
+
 # --- streaming: replies are not dropped because of their wording -------------------
 
 
@@ -319,8 +511,27 @@ def test_render_blueprint_commits_no_secrets():
     for key in ("GROQ_API_KEY", "LANGCHAIN_API_KEY"):
         assert env[key] == {"key": key, "sync": False}  # typed into the dashboard
     for key, item in env.items():
-        if any(word in key for word in ("KEY", "SECRET", "PASSWORD", "TOKEN")):
+        if any(word in key for word in ("KEY", "SECRET", "PASSWORD", "TOKEN", "URL")):
             assert "value" not in item, f"{key} must not have a committed value"
+
+
+def test_render_blueprint_wires_durable_private_postgres():
+    blueprint = yaml.safe_load((REPO / "render.yaml").read_text())
+    (database,) = blueprint["databases"]
+    env = {item["key"]: item for item in blueprint["services"][0]["envVars"]}
+
+    assert database["plan"] == "free"
+    assert database["ipAllowList"] == []  # not reachable from the internet
+    assert env["DATABASE_TYPE"]["value"] == "postgres"
+    assert env["POSTGRES_URL"]["fromDatabase"] == {
+        "name": database["name"],
+        "property": "connectionString",
+    }
+    assert "SQLITE_DB_PATH" not in env
+
+
+def test_render_blueprint_says_demo_only():
+    assert "DEMO ONLY" in (REPO / "render.yaml").read_text()
 
 
 def test_startup_does_not_import_unused_provider_sdks():

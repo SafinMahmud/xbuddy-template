@@ -20,6 +20,13 @@ What it checks:
      /stream, and /roadmap reporting "not ready". A fallback reply counts as a
      failure, because it means the model call did not work.
 
+Durability check (does a thread survive a restart?):
+    1. run the smoke test and note the "Thread:" line it prints
+    2. restart or redeploy the service
+    3. uv run python src/smoke_test.py URL --resume <thread id>
+  It passes only if both earlier turns are still there and the thread continues.
+  On SQLite with a temporary filesystem it fails, which is the honest answer.
+
 Exit code 0 when every check passes, 1 otherwise. No secrets are printed.
 """
 
@@ -39,6 +46,7 @@ AGENT_ID = "xbuddy"
 SMOKE_USER_ID = 990001
 FIRST_MESSAGE = "I'm a backend developer with 3 years of experience, mostly Python and SQL."
 SECOND_MESSAGE = "I also built a small React dashboard at my current job."
+RESUME_MESSAGE = "Before that I was a junior developer for two years."
 # Must match agents.xbuddy.nodes.generate_reply.FALLBACK_REPLY (checked by a test).
 FALLBACK_REPLY = "Sorry, I had trouble responding just now. Could you say that again?"
 PROTECTED_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
@@ -59,6 +67,9 @@ class Check:
 @dataclass
 class SmokeResult:
     mode: str = "unknown"
+    storage: str = "unknown"
+    durable: bool | None = None
+    thread_id: str | None = None
     checks: list[Check] = field(default_factory=list)
 
     @property
@@ -81,7 +92,8 @@ def _request(client: httpx.Client, method: str, path: str, body: Any, token: str
     return client.request(method, path, **kwargs)
 
 
-def wait_for_health(client: httpx.Client, wait_seconds: float, sleep=time.sleep) -> Check:
+def wait_for_health(client: httpx.Client, wait_seconds: float, sleep=time.sleep,
+                    result: SmokeResult | None = None) -> Check:
     """Poll /health with no credentials. A sleeping free instance needs about a minute."""
     deadline = time.monotonic() + wait_seconds
     last = "no response"
@@ -89,6 +101,10 @@ def wait_for_health(client: httpx.Client, wait_seconds: float, sleep=time.sleep)
         try:
             res = client.get("/health")
             if res.status_code == 200 and res.json().get("status") == "ok":
+                storage = res.json().get("storage") or {}
+                if result is not None and isinstance(storage, dict):
+                    result.storage = str(storage.get("type") or "unknown")
+                    result.durable = storage.get("durable")
                 return Check("health is public", True, "200 ok")
             last = f"HTTP {res.status_code}"
         except (httpx.HTTPError, ValueError) as exc:
@@ -108,6 +124,7 @@ def _check_refused(client: httpx.Client, result: SmokeResult, token: str | None,
 
 def _check_conversation(client: httpx.Client, result: SmokeResult, token: str | None):
     thread_id = f"smoke-{uuid.uuid4()}"
+    result.thread_id = thread_id
 
     # --- /invoke: first turn on a new thread ----------------------------------
     res = _request(client, "POST", "/invoke",
@@ -171,11 +188,46 @@ def _check_conversation(client: httpx.Client, result: SmokeResult, token: str | 
                    roadmap.get("success") is False and not roadmap.get("roadmap"))
 
 
+def _check_resume(client: httpx.Client, result: SmokeResult, token: str | None, thread_id: str):
+    """Durability: a thread written before a restart must still be there, and continue."""
+    result.thread_id = thread_id
+    res = _request(client, "POST", "/history", {"thread_id": thread_id}, token)
+    if not result.add("history answers", res.status_code == 200, f"HTTP {res.status_code}"):
+        return
+    before = [m.get("type") for m in res.json().get("messages", [])]
+    survived = before[:4] == ["human", "ai", "human", "ai"]
+    detail = f"{len(before)} messages found"
+    if not before:
+        detail = "thread is gone: this storage does not survive a restart"
+    if not result.add("thread survived the restart", survived, detail):
+        return
+    result.add("section progress survived",
+               (res.json().get("section") or {}).get("id") == "background")
+
+    res = _request(client, "POST", "/invoke",
+                   {"message": RESUME_MESSAGE, "user_id": SMOKE_USER_ID, "thread_id": thread_id},
+                   token)
+    if not result.add("thread continues after the restart", res.status_code == 200,
+                      f"HTTP {res.status_code}"):
+        return
+    reply = str((res.json().get("output") or {}).get("content") or "").strip()
+    result.add("reply came from the model, not the fallback",
+               bool(reply) and reply != FALLBACK_REPLY)
+    res = _request(client, "POST", "/history", {"thread_id": thread_id}, token)
+    after = [m.get("type") for m in res.json().get("messages", [])] if res.status_code == 200 else []
+    result.add("new turn was added to the same thread", len(after) == len(before) + 2,
+               f"{len(before)} -> {len(after)} messages")
+
+
 def run_smoke(client: httpx.Client, token: str | None = None, expect: str = "any",
-              wait_seconds: float = 0, sleep=time.sleep) -> SmokeResult:
-    """Run the smoke test against `client` (an httpx.Client or FastAPI TestClient)."""
+              wait_seconds: float = 0, sleep=time.sleep, resume: str | None = None) -> SmokeResult:
+    """Run the smoke test against `client` (an httpx.Client or FastAPI TestClient).
+
+    With `resume`, check that an earlier smoke thread survived a restart instead
+    of starting a new conversation.
+    """
     result = SmokeResult()
-    health = wait_for_health(client, wait_seconds, sleep)
+    health = wait_for_health(client, wait_seconds, sleep, result)
     result.checks.append(health)
     if not health.ok:
         return result
@@ -192,18 +244,30 @@ def run_smoke(client: httpx.Client, token: str | None = None, expect: str = "any
     if expect != "any":
         result.add(f"deployment is {expect}", result.mode == expect, f"found {result.mode}")
 
+    conversation = _check_conversation
+    if resume:
+        def conversation(client, result, token):
+            _check_resume(client, result, token, resume)
+
     if result.mode == "protected":
         _check_refused(client, result, None, "signed out")
         _check_refused(client, result, "wrong-token-" + uuid.uuid4().hex, "wrong token")
         if token:
-            _check_conversation(client, result, token)
+            conversation(client, result, token)
+        elif resume:
+            result.add("resume needs --token on a protected deployment", False)
     else:
-        _check_conversation(client, result, None)
+        conversation(client, result, None)
     return result
 
 
 def format_report(result: SmokeResult, base_url: str) -> str:
     lines = [f"Smoke test: {base_url}", f"Mode: {result.mode}"]
+    if result.storage != "unknown":
+        note = "survives restarts" if result.durable else "NOT durable, threads are lost on restart"
+        lines.append(f"Storage: {result.storage} ({note})")
+    if result.thread_id:
+        lines.append(f"Thread: {result.thread_id}")
     for check in result.checks:
         mark = "PASS" if check.ok else "FAIL"
         lines.append(f"  [{mark}] {check.name}" + (f" ({check.detail})" if check.detail else ""))
@@ -220,13 +284,17 @@ def main(argv: list[str] | None = None) -> int:
                         help="AUTH_SECRET, to also run the conversation on a protected deployment")
     parser.add_argument("--expect", choices=["any", "open", "protected"], default="any",
                         help="fail if the deployment is not in this mode")
+    parser.add_argument("--resume", default=None, metavar="THREAD_ID",
+                        help="durability check: the thread from an earlier run must have "
+                             "survived a restart")
     parser.add_argument("--wait", type=float, default=120,
                         help="seconds to wait for /health (cold start), default 120")
     args = parser.parse_args(argv)
 
     base_url = args.base_url.rstrip("/")
     with httpx.Client(base_url=base_url, timeout=120, follow_redirects=True) as client:
-        result = run_smoke(client, token=args.token, expect=args.expect, wait_seconds=args.wait)
+        result = run_smoke(client, token=args.token, expect=args.expect,
+                           wait_seconds=args.wait, resume=args.resume)
     print(format_report(result, base_url))
     return 0 if result.passed else 1
 

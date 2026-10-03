@@ -58,6 +58,21 @@ cp .env.example .env.local
 npm run dev
 ```
 
+## Deployment
+
+The API deploys to Render's free plan with `render.yaml`: see [docs/deployment.md](docs/deployment.md).
+
+> **Demo only.** The deployed API has no sign-in. Anyone with the URL can use it, and
+> anyone who knows a thread id can read that thread. Do not enter personal or sensitive
+> information, and do not send real users to it until `AUTH_SECRET` and rate limits are on.
+
+Check a deployment, signed out and after a restart:
+
+```bash
+uv run python src/smoke_test.py https://your-app.onrender.com --expect open
+uv run python src/smoke_test.py https://your-app.onrender.com --resume <thread id>
+```
+
 ## Your first task
 
 **Start with Issue #1** in this repo. Fill in your requirements directly in the issue. When you're done, tag @MOSS in Slack with the issue link.
