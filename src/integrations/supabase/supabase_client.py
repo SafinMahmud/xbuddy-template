@@ -83,9 +83,14 @@ class SupabaseClient:
         plain_text: str,
         status: str,
         satisfaction_status: Optional[str] = None,
-        agent_id: str = "founder-buddy"
+        agent_id: str = "founder-buddy",
+        confirmed_summary: Optional[str] = None,
     ) -> dict:
-        """Save section state to Supabase (synchronous operation)."""
+        """Save section state to Supabase (synchronous operation).
+
+        Upserts on (user_id, thread_id, section_id) so repeated saves update
+        the row instead of violating the unique constraint.
+        """
         try:
             result = self.client.table("section_states").upsert({
                 "user_id": user_id,
@@ -96,8 +101,9 @@ class SupabaseClient:
                 "plain_text": plain_text,
                 "status": status,
                 "satisfaction_status": satisfaction_status,
+                "confirmed_summary": confirmed_summary,
                 "updated_at": "now()"
-            }).execute()
+            }, on_conflict="user_id,thread_id,section_id").execute()
             
             logger.info(f"Section state saved: {section_id} for user {user_id}")
             return {"success": True, "data": result.data}
