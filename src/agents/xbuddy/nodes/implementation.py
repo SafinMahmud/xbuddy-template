@@ -28,7 +28,14 @@ from ..enums import RouterDirective
 from ..llm import get_chat_model
 from ..models import XBuddyState
 from ..persistence import get_roadmap_store
-from ..roadmap import ROADMAP_PROMPT, build_roadmap_input, fallback_roadmap, validate_roadmap
+from ..roadmap import (
+    ROADMAP_PROMPT,
+    build_roadmap_input,
+    conflicting_inputs,
+    fallback_roadmap,
+    reconcile,
+    validate_roadmap,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,13 +67,19 @@ async def implementation_node(state: XBuddyState, config: RunnableConfig) -> dic
     user_data = state["user_data"]
     updates: dict[str, Any] = {}
     prompt_input = build_roadmap_input(section_states, user_data)
+    # Hold the roadmap to the data the user confirmed. Where extraction disagrees
+    # with a confirmed summary, the summary wins.
+    conflicts = conflicting_inputs(section_states, user_data)
+    if conflicts:
+        logger.warning("roadmap inputs conflict; using confirmed summaries: %s", conflicts)
+    checked_against = reconcile(section_states, user_data)
 
     roadmap, problems = "", ["roadmap was not generated"]
     try:
         for _ in range(MAX_ROADMAP_ATTEMPTS):
             feedback = problems if roadmap else None
             roadmap = await _generate(prompt_input, feedback, config)
-            problems = validate_roadmap(roadmap, user_data)
+            problems = validate_roadmap(roadmap, checked_against)
             if not problems:
                 break
     except Exception as exc:  # noqa: BLE001 - the user must still get a roadmap

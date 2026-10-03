@@ -11,11 +11,16 @@ Quality criteria (validate_roadmap) every delivered roadmap must meet:
              nice-to-have.
   Safety     no placeholder text and no salary figures.
 The fallback roadmap has the required structure and grounding by construction.
+
+Inputs are checked too. missing_inputs lists what was not collected, and the
+model is told to say so instead of inventing it. conflicting_inputs finds where
+extracted data disagrees with a confirmed summary; the confirmed summary wins
+(reconcile), and the roadmap is validated against the reconciled data.
 """
 
 import re
 
-from .enums import SectionID, SectionStatus
+from .enums import SectionID, SectionStatus, WorkType
 from .models import JobBuddyData, SectionState
 from .prompts import get_section_template
 
@@ -102,6 +107,81 @@ def requirements_table(user_data: JobBuddyData) -> str:
     return "\n".join(lines)
 
 
+def missing_inputs(section_states: dict[str, SectionState], user_data: JobBuddyData) -> list[str]:
+    """What the roadmap would normally rely on but was not collected."""
+    confirmed = gather_confirmed(section_states)
+    missing = [
+        f"{get_section_template(sid).name} was not confirmed"
+        for sid in SectionID
+        if sid not in confirmed
+    ]
+    if not user_data.job_sources:
+        missing.append("no job postings were supplied, so there are no posting counts to cite")
+    elif not user_data.requirements:
+        missing.append("no requirements could be extracted from the job postings")
+    for sid in SectionID:
+        state = section_states.get(sid.value)
+        if state and state.status == SectionStatus.DONE and state.unverified_fields:
+            missing.append(
+                f"{get_section_template(sid).name}: could not be verified as data: "
+                + ", ".join(state.unverified_fields)
+            )
+    return missing
+
+
+def conflicting_inputs(
+    section_states: dict[str, SectionState], user_data: JobBuddyData
+) -> list[str]:
+    """Where the extracted data disagrees with the summary the user confirmed."""
+    confirmed = gather_confirmed(section_states)
+    conflicts: list[str] = []
+
+    background = canonical(confirmed.get(SectionID.BACKGROUND, ""))
+    years = user_data.profile.years_experience
+    stated_years = {int(m.group(1)) for m in _YEARS.finditer(background)}
+    if years is not None and stated_years and years not in stated_years:
+        conflicts.append(
+            f"years of experience: the confirmed summary says {min(stated_years)}, "
+            f"the extracted profile says {years}"
+        )
+
+    target = canonical(confirmed.get(SectionID.TARGET_ROLE, "")).lower()
+    work_type = user_data.target_role.work_type
+    stated_work = {k for k, words in _WORK_WORDS.items() if any(w in target for w in words)}
+    known = work_type is not None and work_type.value in _WORK_WORDS
+    if known and stated_work and work_type.value not in stated_work:
+        conflicts.append(
+            f"work arrangement: the confirmed summary says {', '.join(sorted(stated_work))}, "
+            f"the extracted target says {work_type.value}"
+        )
+    return conflicts
+
+
+def reconcile(section_states: dict[str, SectionState], user_data: JobBuddyData) -> JobBuddyData:
+    """Data to hold the roadmap to. When the extracted data conflicts with a summary
+    the user confirmed, the confirmed summary wins, because the user approved that
+    exact text and the extracted value is a model's reading of it."""
+    confirmed = gather_confirmed(section_states)
+    profile, target = user_data.profile, user_data.target_role
+
+    stated_years = {
+        int(m.group(1))
+        for m in _YEARS.finditer(canonical(confirmed.get(SectionID.BACKGROUND, "")))
+    }
+    years = profile.years_experience
+    if years is not None and stated_years and years not in stated_years:
+        value = next(iter(stated_years)) if len(stated_years) == 1 else None
+        profile = profile.model_copy(update={"years_experience": value})
+
+    summary = canonical(confirmed.get(SectionID.TARGET_ROLE, "")).lower()
+    stated_work = [k for k, words in _WORK_WORDS.items() if any(w in summary for w in words)]
+    if target.work_type is not None and stated_work and target.work_type.value not in stated_work:
+        value = WorkType(stated_work[0]) if len(stated_work) == 1 else None
+        target = target.model_copy(update={"work_type": value})
+
+    return user_data.model_copy(update={"profile": profile, "target_role": target})
+
+
 def build_roadmap_input(section_states: dict[str, SectionState], user_data: JobBuddyData) -> str:
     parts = [
         f"{get_section_template(sid).name}:\n{text}"
@@ -110,6 +190,19 @@ def build_roadmap_input(section_states: dict[str, SectionState], user_data: JobB
     table = requirements_table(user_data)
     if table:
         parts.append("Extracted requirements (with source postings):\n" + table)
+    missing = missing_inputs(section_states, user_data)
+    if missing:
+        parts.append(
+            "MISSING INFORMATION (say plainly in the relevant section that this was not "
+            "covered; do not invent it, and do not cite posting counts you were not given):\n- "
+            + "\n- ".join(missing)
+        )
+    conflicts = conflicting_inputs(section_states, user_data)
+    if conflicts:
+        parts.append(
+            "CONFLICTING INFORMATION (use the confirmed summary, which the user approved; "
+            "never state the other value):\n- " + "\n- ".join(conflicts)
+        )
     return "\n\n".join(parts)
 
 
