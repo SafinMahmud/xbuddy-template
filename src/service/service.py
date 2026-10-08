@@ -335,6 +335,20 @@ def section_progress(values: dict[str, Any]) -> dict[str, Any] | None:
         "completed_sections": done,
         "total_sections": len(SectionID),
         "roadmap_ready": bool(values.get("roadmap")),
+        # Every section in order, so a UI can draw the whole path (a reopened
+        # section is "in_progress" while later ones stay "done").
+        "sections": [
+            {
+                "id": sid.value,
+                "name": SECTION_TEMPLATES[sid].name,
+                "status": (
+                    states[sid.value].status.value
+                    if sid.value in states
+                    else SectionStatus.PENDING.value
+                ),
+            }
+            for sid in SectionID
+        ],
     }
 
 
@@ -584,16 +598,14 @@ async def message_generator(
         except Exception as e:
             logger.warning(f"Failed to subscribe to Realtime for thread {thread_id}: {e}")
 
-    # Get the current thread's message history length to filter out historical messages
+    # Ids of the messages already in the thread, so a node that returns history
+    # along with its new message cannot make an old message go out again.
     try:
         current_state = await agent.aget_state(config=kwargs["config"])
-        initial_message_count = len(current_state.values.get("messages", []))
-        logger.debug(f"Initial message count: {initial_message_count}")
+        history_ids = {m.id for m in current_state.values.get("messages", []) if m.id}
     except Exception as e:
-        logger.debug(f"Could not get initial message count: {e}")
-        initial_message_count = 0
-
-    sent_message_count = 0  # Track the number of messages sent to prevent duplicates
+        logger.debug(f"Could not read the thread's history: {e}")
+        history_ids = set()
 
     try:
         # Send metadata as the first event in the stream
@@ -629,21 +641,17 @@ async def message_generator(
                         continue
                     updates = updates or {}
                     
-                    # STREAM_FIX: Only send NEW messages (not historical ones)
-                    # Use initial_message_count to filter out messages that were already in the thread
-                    update_messages = updates.get("messages", [])
-                    
-                    # Only add messages that are new (beyond the initial count)
-                    if len(update_messages) > 0:
-                        # If we have an initial count, only take messages after that position
-                        if initial_message_count > 0 and len(update_messages) > initial_message_count:
-                            new_messages.extend(update_messages[initial_message_count:])
-                            logger.debug(f"Sending {len(update_messages[initial_message_count:])} new messages")
-                        # If no initial count or this is the first batch, check against sent_message_count
-                        elif len(update_messages) > sent_message_count:
-                            new_messages.extend(update_messages[sent_message_count:])
-                            sent_message_count = len(update_messages)
-                            logger.debug(f"Sending {len(new_messages)} new messages")
+                    # Send every message this node added in this turn. A turn can add
+                    # more than one: the last confirmation is followed by the roadmap
+                    # from the implementation node. (Counting messages, as the template
+                    # did, dropped that second message.)
+                    for update_message in updates.get("messages", []):
+                        message_id = getattr(update_message, "id", None)
+                        if message_id and message_id in history_ids:
+                            continue
+                        if message_id:
+                            history_ids.add(message_id)
+                        new_messages.append(update_message)
 
             if stream_mode == "custom":
                 new_messages = [event]
