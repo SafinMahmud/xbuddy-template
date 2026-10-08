@@ -48,15 +48,20 @@ uv run python src/run_service.py
 
 The API will be available at `http://localhost:8080`.
 
-### Frontend (optional)
+### Frontend
+
+A Next.js chat UI for JobBuddy: progress through the five sections, streamed replies,
+and the finished roadmap as a document you can copy or download.
 
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local
-# Edit .env.local with your Supabase keys
-npm run dev
+cp .env.example .env.local   # JOBBUDDY_API_URL=http://localhost:8080
+npm run dev                  # http://localhost:3000
 ```
+
+It deploys to Vercel with one environment variable: see
+[docs/deployment.md](docs/deployment.md#frontend-on-vercel).
 
 ## Deployment
 
