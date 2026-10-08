@@ -88,6 +88,15 @@ def test_invoke_new_thread_then_confirm_advances(client, monkeypatch):
     assert section["id"] == "target_role"
     assert section["completed_sections"] == 1
     assert section["roadmap_ready"] is False
+    # The whole path, in order, for the frontend's progress display.
+    assert [(s["id"], s["status"]) for s in section["sections"]] == [
+        ("background", "done"),
+        ("target_role", "in_progress"),
+        ("skill_gap", "pending"),
+        ("application_strategy", "pending"),
+        ("interview_prep", "pending"),
+    ]
+    assert section["sections"][2]["name"] == "Skill Gap"
 
 
 def test_history_restores_messages_and_progress(client, monkeypatch):
@@ -123,6 +132,63 @@ def test_stream_sends_reply_tokens_but_not_the_decision(client, monkeypatch):
     section = [e["content"] for e in parsed if e["type"] == "section"]
     assert section and section[-1]["id"] == "background"
     assert events[-1] == "[DONE]"
+
+
+def test_stream_delivers_the_roadmap_in_the_turn_that_writes_it(client, monkeypatch):
+    """The last confirmation adds two messages: the reply, then the roadmap."""
+    import asyncio
+
+    set_models(monkeypatch, SUMMARY_REPLY, STAY)
+    thread_id = invoke(client, "Backend dev")["thread_id"]
+
+    # Jump to the end: four sections confirmed, the fifth waiting for its "yes".
+    states = {
+        s.value: SectionState(section_id=s, status=SectionStatus.DONE, confirmed_summary="ok")
+        for s in SectionID
+    }
+    states["interview_prep"] = SectionState(
+        section_id=SectionID.INTERVIEW_PREP, status=SectionStatus.IN_PROGRESS
+    )
+    asyncio.run(graph.aupdate_state(
+        {"configurable": {"thread_id": thread_id}},
+        {"section_states": states, "current_section": SectionID.INTERVIEW_PREP,
+         "context_packet": None},
+    ))  # fmt: skip
+
+    closing = "Thanks! I am now putting together your roadmap."
+    confirm = json.dumps({
+        "router_directive": "next", "is_satisfied": True, "should_save_content": True,
+        "section_summary": "Behavioral and system design, weekly mock interviews",
+        "covered_fields": get_section_template(SectionID.INTERVIEW_PREP).required_fields})
+    set_models(monkeypatch, closing, confirm)
+
+    def no_model(config=None):
+        raise RuntimeError("roadmap model unavailable")  # the fallback roadmap is used
+
+    monkeypatch.setattr(impl, "get_chat_model", no_model)
+
+    body = {"message": "Yes, looks good", "user_id": 7, "thread_id": thread_id}
+    with client.stream("POST", "/stream", json=body) as res:
+        assert res.status_code == 200
+        events = [line[len("data: "):] for line in res.iter_lines() if line.startswith("data: ")]
+
+    parsed = [json.loads(e) for e in events if e != "[DONE]"]
+    sent = [e["content"]["content"] for e in parsed if e["type"] == "message"]
+    assert len(sent) == 2, sent
+    assert sent[0] == closing
+    assert sent[1].startswith("# Your Job Search Roadmap")
+    assert "".join(e["content"] for e in parsed if e["type"] == "token") == closing
+    section = [e["content"] for e in parsed if e["type"] == "section"][-1]
+    assert section["roadmap_ready"] is True
+
+    # A later turn sends its one new reply and never repeats the roadmap.
+    set_models(monkeypatch, "Happy to help with that.", STAY)
+    body["message"] = "Can you explain week 1?"
+    with client.stream("POST", "/stream", json=body) as res:
+        events = [line[len("data: "):] for line in res.iter_lines() if line.startswith("data: ")]
+    sent = [json.loads(e)["content"]["content"] for e in events
+            if e != "[DONE]" and json.loads(e)["type"] == "message"]
+    assert sent == ["Happy to help with that."]
 
 
 def test_roadmap_endpoint_before_and_after_completion(client, monkeypatch):
