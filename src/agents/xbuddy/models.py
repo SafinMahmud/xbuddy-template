@@ -180,6 +180,9 @@ class XBuddyState(MessagesState, total=False):
     last_error: str | None
     roadmap: str | None                 # renamed from final_output
     should_generate_final_output: bool
+    # Tool calls and tool results of the turn in progress. Kept out of `messages`
+    # (the transcript the user sees) and emptied when the reply is written.
+    tool_scratch: list[BaseMessage]
 
 def default_state() -> dict[str, Any]:
     """Fresh defaults for a brand-new thread (identity is set by initialize_node)."""
@@ -198,6 +201,7 @@ def default_state() -> dict[str, Any]:
         "last_error": None,
         "roadmap": None,
         "should_generate_final_output": False,
+        "tool_scratch": [],
     }
 
 

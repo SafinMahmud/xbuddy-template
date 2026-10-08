@@ -19,11 +19,15 @@ Your agent follows the same graph pattern as [FounderBuddy](https://github.com/V
 
 ```
 START → initialize → router → generate_reply → generate_decision
-                        ↑                             ↓
+                        ↑          ↓  ↑               ↓
+                        │         tools               │
                         └──────── memory_updater ─────┘
                                        ↓
                                implementation → END
 ```
+
+`generate_reply ⇄ tools` is JobBuddy's tool loop: the model can call `search_jobs`
+to fetch real openings mid-conversation. See [docs/job-search-tool.md](docs/job-search-tool.md).
 
 ## Getting started
 
@@ -124,6 +128,7 @@ src/
 | PR 4 | `memory_updater` + Supabase | `nodes/memory_updater.py`, Supabase integration |
 | PR 5 | `implementation` node (final output) | `nodes/implementation.py` |
 | PR 6 | FastAPI `/invoke` `/stream` `/history` | `service/service.py` — already working, customize |
+| Phase 8 | Tool use: `search_jobs` (real openings) | `job_search.py`, `nodes/run_tools.py`, `nodes/generate_reply.py` |
 
 Every PR must include a LangSmith trace URL and tradeoff reasoning.
 

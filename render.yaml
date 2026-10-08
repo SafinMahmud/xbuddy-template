@@ -28,6 +28,14 @@ services:
         sync: false
       - key: LANGCHAIN_API_KEY
         sync: false
+      # Job search tool (Adzuna free key). Optional: without them search reports
+      # "not set up" and the rest of the conversation is unaffected.
+      - key: ADZUNA_APP_ID
+        sync: false
+      - key: ADZUNA_APP_KEY
+        sync: false
+      - key: JOB_SEARCH_COUNTRY
+        value: ca
       - key: LANGCHAIN_TRACING_V2
         value: "true"
       - key: LANGCHAIN_PROJECT

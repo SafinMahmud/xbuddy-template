@@ -80,6 +80,12 @@ class Settings(BaseSettings):
 
     OPENWEATHERMAP_API_KEY: SecretStr | None = None
 
+    # Job search tool (Adzuna, free key from https://developer.adzuna.com/signup).
+    # Without both values the tool reports "not set up" instead of searching.
+    ADZUNA_APP_ID: SecretStr | None = None
+    ADZUNA_APP_KEY: SecretStr | None = None
+    JOB_SEARCH_COUNTRY: str = "ca"  # Adzuna country code used when the model gives none
+
 
     LANGCHAIN_TRACING_V2: bool = False
     LANGCHAIN_PROJECT: str = "default"
