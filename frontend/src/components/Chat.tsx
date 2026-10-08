@@ -131,9 +131,6 @@ export default function Chat({ messages, busy, loading, server, placeholder, onS
               {busy ? "Replying…" : "Send"}
             </button>
           </div>
-          <p className="demo-note">
-            Demo with no sign-in. Leave out personal or sensitive details.
-          </p>
         </div>
       </form>
     </div>

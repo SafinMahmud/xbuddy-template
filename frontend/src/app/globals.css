@@ -459,10 +459,16 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+/* Demo warning: a strip under every view, so it is never out of sight. */
 .demo-note {
-  margin-top: 0.45rem;
-  font-size: 0.8rem;
-  color: var(--muted);
+  flex: none;
+  padding: 0.45rem 1.5rem;
+  border-top: 1px solid #ecd9a0;
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  text-align: center;
 }
 
 /* ---------- roadmap ---------- */
@@ -724,6 +730,12 @@ button:disabled {
 
   .composer {
     padding: 0.6rem 1rem 0.75rem;
+  }
+
+  .demo-note {
+    padding: 0.4rem 1rem;
+    font-size: 0.76rem;
+    text-align: left;
   }
 
   .welcome h1 {

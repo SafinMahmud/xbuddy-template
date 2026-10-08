@@ -181,6 +181,23 @@ cp .env.example .env.local   # JOBBUDDY_API_URL=http://localhost:8080
 npm run dev                  # http://localhost:3000
 ```
 
+Signed-out smoke test of the deployed frontend (plain requests, no cookies, no token),
+from any machine with Node 18 or newer:
+
+```bash
+node frontend/scripts/smoke.mjs https://your-app.vercel.app          # one turn
+node frontend/scripts/smoke.mjs https://your-app.vercel.app --full   # all five sections, to the roadmap
+```
+
+It checks that the page loads and shows the demo-only warning, that the API answers
+through `/api/health`, that one turn streams a real reply, and that `/api/history`
+and `/api/roadmap` agree. `--full` plays a scripted job seeker through every section
+with the real model and reads the finished roadmap back. Exit code 0 means every
+check passed.
+
+The page keeps the API's demo-only warning on screen in every view. Keep it there
+for as long as the API runs without sign-in.
+
 Things to know:
 
 - **Cold start.** The free API sleeps after 15 minutes. The page calls `/api/health`

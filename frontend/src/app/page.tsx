@@ -253,6 +253,12 @@ export default function Home() {
             onSend={send}
           />
         )}
+        {/* The API's own demo warning, shown in every view (chat and roadmap). */}
+        <p className="demo-note" role="note">
+          <strong>Demo only. Do not enter personal or sensitive information.</strong> There is no
+          sign-in: anyone with this link can use it, and anyone who knows a conversation&apos;s id
+          can read that conversation.
+        </p>
       </main>
     </div>
   );
