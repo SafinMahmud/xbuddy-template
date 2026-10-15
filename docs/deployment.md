@@ -21,7 +21,8 @@ Render's free plan and checks it with a signed-out smoke test.
 | Model calls | Groq free plan | `GROQ_API_KEY` |
 | Traces | LangSmith | `LANGCHAIN_API_KEY`, optional |
 
-The Next.js frontend in `frontend/` is not part of this deployment.
+The Next.js frontend in `frontend/` deploys separately to Vercel: see
+[Frontend on Vercel](#frontend-on-vercel).
 
 ## Deploy to Render
 
@@ -149,6 +150,67 @@ uv run python src/smoke_test.py https://jobbuddy-api.onrender.com --token "$AUTH
 `AUTH_SECRET` is one shared token, which is enough to close a demo but not enough for
 real users: they need per-user accounts, so one user cannot read another's thread,
 and per-user rate limits.
+
+## Frontend on Vercel
+
+The chat UI in `frontend/` is a Next.js app. The browser only talks to the app's own
+`/api/*` routes, and those forward to the Render API from the server. So the API URL
+and token never reach the browser, and no CORS setup is needed.
+
+| Route | Forwards to | Purpose |
+| --- | --- | --- |
+| `POST /api/chat` | `POST /xbuddy/stream` | one turn, streamed token by token |
+| `POST /api/history` | `POST /history` | reload a conversation for a returning visitor |
+| `GET /api/roadmap` | `GET /roadmap/xbuddy` | the finished roadmap |
+| `GET /api/health` | `GET /health` | wakes a sleeping API when the page opens |
+
+Deploy:
+
+1. On vercel.com choose **Add New > Project** and import this repository.
+2. Set **Root Directory** to `frontend`. Vercel detects Next.js; keep the default build settings.
+3. Add the environment variable `JOBBUDDY_API_URL` with the Render URL, for example
+   `https://jobbuddy-api.onrender.com` (no trailing slash).
+4. Click **Deploy** and open the URL Vercel gives you.
+
+Run it locally against a local API:
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local   # JOBBUDDY_API_URL=http://localhost:8080
+npm run dev                  # http://localhost:3000
+```
+
+Signed-out smoke test of the deployed frontend (plain requests, no cookies, no token),
+from any machine with Node 18 or newer:
+
+```bash
+node frontend/scripts/smoke.mjs https://your-app.vercel.app          # one turn
+node frontend/scripts/smoke.mjs https://your-app.vercel.app --full   # all five sections, to the roadmap
+```
+
+It checks that the page loads and shows the demo-only warning, that the API answers
+through `/api/health`, that one turn streams a real reply, and that `/api/history`
+and `/api/roadmap` agree. `--full` plays a scripted job seeker through every section
+with the real model and reads the finished roadmap back. Exit code 0 means every
+check passed.
+
+The page keeps the API's demo-only warning on screen in every view. Keep it there
+for as long as the API runs without sign-in.
+
+Things to know:
+
+- **Cold start.** The free API sleeps after 15 minutes. The page calls `/api/health`
+  as soon as it opens, which starts the wake-up, and shows a notice until the API
+  answers. Open the page a minute before a demo.
+- **60 second limit.** Each Vercel function call may run for 60 seconds
+  (`maxDuration` in the route files). A reply normally takes a few seconds.
+- **Locking the API.** Set `AUTH_SECRET` on Render and the same value as
+  `JOBBUDDY_API_TOKEN` on Vercel. The UI keeps working, and direct calls to the Render
+  URL get 401. The UI itself is still open to anyone, so this protects the API from
+  scripts, not from visitors.
+- **Who is who.** There are no accounts. Each browser gets a random user id and keeps
+  its list of conversations in local storage; the messages live on the API.
 
 ## Memory
 

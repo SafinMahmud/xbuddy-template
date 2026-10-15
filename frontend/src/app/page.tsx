@@ -1,240 +1,265 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import ConfigPanel from '@/components/ConfigPanel';
-import ChatArea from '@/components/ChatArea';
-import ProgressSidebar from '@/components/ProgressSidebar';
-import ConversationHistory from '@/components/ConversationHistory';
-import SectionDisplayPanel from '@/components/SectionDisplayPanel';
-import BusinessPlanEditor from '@/components/BusinessPlanEditor';
-import { ConversationRecord, Message } from '@/utils/conversationStorage';
+import { useCallback, useEffect, useRef, useState } from "react";
 
-interface Section {
-  database_id: number;
-  name: string;
-  status: string;
-}
+import Chat, { type ServerState } from "@/components/Chat";
+import Conversations from "@/components/Conversations";
+import Roadmap from "@/components/Roadmap";
+import RouteProgress from "@/components/RouteProgress";
+import { readSse } from "@/lib/sse";
+import {
+  forgetThread,
+  getActiveThread,
+  getUserId,
+  listThreads,
+  saveThread,
+  setActiveThread,
+  titleFrom,
+} from "@/lib/storage";
+import type { ChatMessage, Progress, SavedThread } from "@/lib/types";
 
-export default function Chat() {
-  const [selectedAgent, setSelectedAgent] = useState<string>('xbuddy');
-  const [userId, setUserId] = useState<number>(12);
-  const [mode, setMode] = useState<'invoke' | 'stream'>('stream');
+const PLACEHOLDERS: Record<string, string> = {
+  background: "Your current role, years of experience, main skills…",
+  target_role: "The titles you want, where, and what matters most to you…",
+  skill_gap: "Paste a job posting, or ask JobBuddy to find some openings…",
+  application_strategy: "How you plan to apply, or ask to see current openings…",
+  interview_prep: "The interviews you expect and what worries you…",
+};
+const DEFAULT_PLACEHOLDER = "Type your answer. Shift+Enter adds a new line.";
+const FAILED_TURN = "That message did not go through. Check your connection and send it again.";
+const CUT_OFF = "The reply stopped before it finished. Send your message again.";
+
+let nextId = 0;
+const newId = (prefix: string) => `${prefix}${Date.now()}-${nextId++}`;
+
+export default function Home() {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [progress, setProgress] = useState<Progress | null>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
-  const [currentSection, setCurrentSection] = useState<Section | null>(null);
-  const [loadedMessages, setLoadedMessages] = useState<Message[]>([]);
-  const [isConfigOpen, setIsConfigOpen] = useState<boolean>(false);
-  const [isBusinessPlanEditorOpen, setIsBusinessPlanEditorOpen] = useState<boolean>(false);
+  const [threads, setThreads] = useState<SavedThread[]>([]);
+  const [busy, setBusy] = useState(false); // a reply is being written
+  const [loading, setLoading] = useState(false); // a saved conversation is being loaded
+  const [view, setView] = useState<"chat" | "roadmap">("chat");
+  const [server, setServer] = useState<ServerState>("checking");
+  const userId = useRef(0);
+  const threadRef = useRef<string | null>(null); // current thread, readable inside the stream loop
 
-  const handleAgentChange = (agentId: string) => {
-    setSelectedAgent(agentId);
-    // Reset conversation when agent changes
-    setThreadId(null);
-    setCurrentSection(null);
+  const activate = useCallback((id: string | null) => {
+    threadRef.current = id;
+    setThreadId(id);
+    setActiveThread(id);
+  }, []);
+
+  const openThread = useCallback(
+    async (id: string) => {
+      setLoading(true);
+      setView("chat");
+      activate(id);
+      try {
+        const res = await fetch("/api/history", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ threadId: id }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        if (threadRef.current !== id) return; // the visitor picked something else meanwhile
+        if (data.messages.length === 0) {
+          // The server no longer has it (for example the demo database was reset).
+          setThreads(forgetThread(id));
+          activate(null);
+          setMessages([]);
+          setProgress(null);
+        } else {
+          setMessages(data.messages);
+          setProgress(data.section);
+        }
+      } catch {
+        if (threadRef.current !== id) return;
+        setMessages([
+          {
+            id: newId("e"),
+            role: "assistant",
+            failed: true,
+            content: "This conversation could not be loaded. The server may still be waking up. Pick it again in a moment.",
+          },
+        ]);
+        setProgress(null);
+      } finally {
+        if (threadRef.current === id || threadRef.current === null) setLoading(false);
+      }
+    },
+    [activate],
+  );
+
+  // On first load: identify this browser, wake the API, and reopen the last conversation.
+  useEffect(() => {
+    userId.current = getUserId();
+    setThreads(listThreads());
+
+    let cancelled = false;
+    const slow = setTimeout(() => !cancelled && setServer((s) => (s === "checking" ? "waking" : s)), 2500);
+    (async () => {
+      for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
+        try {
+          const res = await fetch("/api/health", { cache: "no-store" });
+          if (res.ok) {
+            if (!cancelled) setServer("ready");
+            return;
+          }
+        } catch {
+          // fall through to the next attempt
+        }
+      }
+      if (!cancelled) setServer("down");
+    })();
+
+    const last = getActiveThread();
+    if (last) void openThread(last);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(slow);
+    };
+  }, [openThread]);
+
+  const startNew = () => {
+    activate(null);
+    setMessages([]);
+    setProgress(null);
+    setView("chat");
   };
 
-  const handleUserIdChange = (newUserId: number) => {
-    setUserId(newUserId);
+  const forget = (id: string) => {
+    setThreads(forgetThread(id));
+    if (id === threadRef.current) startNew();
   };
 
-  const handleModeChange = (newMode: 'invoke' | 'stream') => {
-    setMode(newMode);
-  };
+  const send = async (text: string) => {
+    const content = text.trim();
+    if (!content || busy) return;
+    const replyId = newId("a");
+    let openId: string | null = replyId; // the reply bubble currently receiving tokens
+    let received = false;
+    const startedIn = threadRef.current;
 
+    setBusy(true);
+    setMessages((prev) => [
+      ...prev,
+      { id: newId("u"), role: "user", content },
+      { id: replyId, role: "assistant", content: "", open: true },
+    ]);
 
-  const handleThreadIdChange = (newThreadId: string) => {
-    setThreadId(newThreadId);
-  };
+    const patch = (id: string, change: (m: ChatMessage) => ChatMessage) =>
+      setMessages((prev) => prev.map((m) => (m.id === id ? change(m) : m)));
 
-  const handleSectionUpdate = (section: Section) => {
-    setCurrentSection(section);
-  };
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: content, threadId: startedIn, userId: userId.current }),
+      });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      setServer("ready");
 
-  const handleLoadConversation = (conversation: ConversationRecord) => {
-    setThreadId(conversation.threadId);
-    setSelectedAgent(conversation.agentType);
-    setUserId(conversation.userId);
-    setLoadedMessages(conversation.messages);
-    
-    // Restore section state if available
-    if (conversation.currentSection) {
-      setCurrentSection(conversation.currentSection);
-    } else {
-      setCurrentSection(null);
+      for await (const data of readSse(res.body)) {
+        if (data === "[DONE]") break;
+        let event: { type: string; content: any }; // eslint-disable-line @typescript-eslint/no-explicit-any
+        try {
+          event = JSON.parse(data);
+        } catch {
+          continue; // one unreadable event should not end the reply
+        }
+
+        if (event.type === "metadata" && event.content?.thread_id && !threadRef.current) {
+          activate(event.content.thread_id);
+          setThreads(saveThread(event.content.thread_id, titleFrom(content)));
+        } else if (event.type === "token" && typeof event.content === "string") {
+          received = true;
+          if (!openId) {
+            // A second message in the same turn (the roadmap after the last reply).
+            const id = (openId = newId("a"));
+            setMessages((prev) => [...prev, { id, role: "assistant", content: "", open: true }]);
+          }
+          const id = openId;
+          patch(id, (m) => ({ ...m, content: m.content + event.content }));
+        } else if (event.type === "message" && event.content?.type === "ai" && event.content.content) {
+          // The complete message. It replaces the streamed text, so the bubble is
+          // right even if a token was lost on the way.
+          received = true;
+          const full: string = event.content.content;
+          if (openId) {
+            patch(openId, (m) => ({ ...m, content: full, open: false }));
+            openId = null;
+          } else {
+            setMessages((prev) => [...prev, { id: newId("a"), role: "assistant", content: full }]);
+          }
+        } else if (event.type === "section" && event.content) {
+          setProgress(event.content as Progress);
+        }
+      }
+
+      if (openId) {
+        const id = openId;
+        patch(id, (m) =>
+          m.content ? { ...m, open: false } : { ...m, open: false, failed: true, content: CUT_OFF },
+        );
+      }
+    } catch {
+      const id = openId ?? replyId;
+      // Keep whatever part of the reply arrived. Only an empty bubble becomes a notice.
+      patch(id, (m) =>
+        received && m.content
+          ? { ...m, open: false }
+          : { ...m, open: false, failed: true, content: FAILED_TURN },
+      );
+    } finally {
+      setBusy(false);
+      if (threadRef.current) setThreads(saveThread(threadRef.current));
     }
   };
 
-  const handleDeleteConversation = (deletedThreadId: string) => {
-    if (threadId === deletedThreadId) {
-      setThreadId(null);
-      setLoadedMessages([]);
-      setCurrentSection(null);
-    }
-  };
+  const showRoadmap = view === "roadmap" && threadId && progress?.roadmap_ready;
 
   return (
-    <div style={{
-      display: 'flex',
-      height: '100vh',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      position: 'relative'
-    }}>
+    <div className="app">
+      <aside className="sidebar">
+        <p className="wordmark">JobBuddy</p>
+        <RouteProgress
+          progress={progress}
+          showingRoadmap={Boolean(showRoadmap)}
+          onOpenRoadmap={() => setView("roadmap")}
+        />
+        <Conversations
+          threads={threads}
+          activeId={threadId}
+          disabled={busy}
+          onSelect={openThread}
+          onNew={startNew}
+          onForget={forget}
+        />
+      </aside>
 
-      {/* Settings Modal */}
-      {isConfigOpen && (
-        <>
-          <div
-            onClick={() => setIsConfigOpen(false)}
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.5)',
-              zIndex: 200,
-              animation: 'fadeIn 0.2s ease'
-            }}
+      <main className="main">
+        {showRoadmap ? (
+          <Roadmap threadId={threadId} userId={userId.current} onBack={() => setView("chat")} />
+        ) : (
+          <Chat
+            messages={messages}
+            busy={busy}
+            loading={loading}
+            server={server}
+            placeholder={(progress && PLACEHOLDERS[progress.id]) || DEFAULT_PLACEHOLDER}
+            onSend={send}
           />
-          <div style={{
-            position: 'fixed',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            zIndex: 201,
-            animation: 'slideIn 0.3s ease'
-          }}>
-            <ConfigPanel
-              selectedAgent={selectedAgent}
-              userId={userId}
-              mode={mode}
-              threadId={threadId}
-              onAgentChange={handleAgentChange}
-              onUserIdChange={handleUserIdChange}
-              onModeChange={handleModeChange}
-              onClose={() => setIsConfigOpen(false)}
-            />
-          </div>
-        </>
-      )}
-
-      {/* Left Sidebar - Progress & Chat History */}
-      <div style={{
-        width: '320px',
-        height: '100vh',
-        backgroundColor: '#f8fafc',
-        borderRight: '1px solid #e2e8f0',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden'
-      }}>
-        {/* Settings Button */}
-        <div style={{ padding: '16px', borderBottom: '1px solid #e2e8f0' }}>
-          <button
-            onClick={() => setIsConfigOpen(true)}
-            style={{
-              width: '100%',
-              padding: '10px 16px',
-              backgroundColor: '#6366f1',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '14px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              transition: 'all 0.2s ease',
-              fontWeight: '600'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#4f46e5';
-              e.currentTarget.style.transform = 'translateY(-1px)';
-              e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#6366f1';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = 'none';
-            }}
-            title="Open Settings"
-          >
-            <span style={{ fontSize: '16px' }}>⚙</span>
-            <span>Settings</span>
-          </button>
-        </div>
-
-        {/* Progress Sidebar - Only show for xbuddy */}
-        {selectedAgent === 'xbuddy' && (
-          <div style={{
-            padding: '16px',
-            borderBottom: '1px solid #e2e8f0',
-            backgroundColor: 'white'
-          }}>
-            <ProgressSidebar
-              currentSection={currentSection}
-              selectedAgent={selectedAgent}
-              threadId={threadId}
-              userId={userId}
-              onEditBusinessPlan={() => setIsBusinessPlanEditorOpen(true)}
-            />
-          </div>
         )}
-
-        {/* Chat History */}
-        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <ConversationHistory
-            currentThreadId={threadId}
-            selectedAgent={selectedAgent}
-            onSelectConversation={handleLoadConversation}
-            onDeleteConversation={handleDeleteConversation}
-          />
-        </div>
-      </div>
-
-      <ChatArea
-        selectedAgent={selectedAgent}
-        userId={userId}
-        mode={mode}
-        threadId={threadId}
-        loadedMessages={loadedMessages}
-        currentSection={currentSection}
-        onThreadIdChange={handleThreadIdChange}
-        onSectionUpdate={handleSectionUpdate}
-      />
-
-      {/* Right Sidebar - Section Display Panel or Final Output Editor */}
-      <SectionDisplayPanel
-        userId={userId}
-        selectedAgent={selectedAgent}
-        currentSection={currentSection}
-        threadId={threadId}
-      />
-      
-      {/* Final Output Editor - Fixed right panel */}
-      <BusinessPlanEditor
-        threadId={threadId}
-        userId={userId}
-        isOpen={isBusinessPlanEditorOpen}
-        onClose={() => setIsBusinessPlanEditorOpen(false)}
-      />
-
-      <style jsx>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes slideIn {
-          from {
-            opacity: 0;
-            transform: translate(-50%, -45%);
-          }
-          to {
-            opacity: 1;
-            transform: translate(-50%, -50%);
-          }
-        }
-      `}</style>
+        {/* The API's own demo warning, shown in every view (chat and roadmap). */}
+        <p className="demo-note" role="note">
+          <strong>Demo only. Do not enter personal or sensitive information.</strong> There is no
+          sign-in: anyone with this link can use it, and anyone who knows a conversation&apos;s id
+          can read that conversation.
+        </p>
+      </main>
     </div>
   );
 }
