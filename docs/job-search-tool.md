@@ -70,9 +70,12 @@ for example by asking them to paste a posting. A failed search never fails the t
   date, board and link. The stored description is never fetched: the gap analysis
   still needs the full posting pasted by the user, which keeps every requirement
   traceable to a real quote.
-- **The model never writes the filter.** Search words are cut down to letters,
-  digits, `+` and `#` before they go into the PostgREST query, so model output
-  cannot change the shape of the database filter.
+- **The model never writes the filter.** Three layers: search words are cut down to
+  letters, digits, `+` and `#`; each value is double-quoted with quotes and
+  backslashes escaped (PostgREST's escaping for logic trees); and httpx
+  percent-encodes the query, so `+` and `#` arrive as `%2B` and `%23`. Tests feed
+  hostile text (quote breakouts, extra clauses, extra query parameters, SQL-style
+  input) and check that only the one allowed filter shape ever comes out.
 - **Read-only by design.** The anon key can only read the public `jobs` table; the
   row-level security policies in job-tracker keep every other table closed.
 - **Own tools node instead of the prebuilt `ToolNode`.** Same job, but it writes to

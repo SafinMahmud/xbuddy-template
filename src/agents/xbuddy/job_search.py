@@ -17,8 +17,9 @@ and nodes/run_tools.py). Design rules:
     short backoff. Permanent ones (missing or rejected key, bad request) are not.
   - Results carry title, company, location, date, board and link only. The stored
     description stays out: the gap analysis needs the full posting from the user.
-  - Search words are reduced to letters and digits before they reach the query,
-    so model output can never change the shape of the database filter.
+  - Model text never shapes the database filter: search words are reduced to
+    letters, digits, + and #, then each value is double-quoted (PostgREST's own
+    escaping for logic trees), and httpx percent-encodes the whole query.
 """
 
 import asyncio
@@ -86,11 +87,23 @@ def location_term(location: str) -> str:
     return " ".join(re.findall(r"[a-z]+", first.lower()))
 
 
+def quoted(value: str) -> str:
+    """A PostgREST logic-tree value in double quotes, with quotes and backslashes escaped.
+
+    Quoting makes reserved characters (, . : ( ) and others) plain text inside
+    the value. search_words already removes them; this is the second layer.
+    """
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def build_params(words: list[str], location: str, limit: int) -> dict[str, str]:
     """PostgREST filter: every word in the title or company, newest first."""
     params = {"select": COLUMNS, "order": "date_discovered.desc", "limit": str(limit)}
     if words:
-        clauses = ",".join(f"or(title.ilike.*{w}*,company.ilike.*{w}*)" for w in words)
+        clauses = ",".join(
+            f"or(title.ilike.{quoted(f'*{w}*')},company.ilike.{quoted(f'*{w}*')})"
+            for w in words
+        )
         params["and"] = f"({clauses})"
     if location:
         params["location"] = f"ilike.*{location}*"
