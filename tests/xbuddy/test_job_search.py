@@ -1,7 +1,7 @@
 """Phase 8 tests: the search_jobs tool and the tool loop in the graph.
 
-No test touches the network: Adzuna is replaced with an httpx.MockTransport, and
-the chat model with a fake that can ask for a tool.
+No test touches the network: job-tracker's Supabase REST API is replaced with an
+httpx.MockTransport, and the chat model with a fake that can ask for a tool.
 """
 
 import itertools
@@ -26,7 +26,14 @@ from pydantic import Field, SecretStr
 from agents.xbuddy import job_search
 from agents.xbuddy.enums import SectionID, SectionStatus
 from agents.xbuddy.graph.routes import route_after_reply
-from agents.xbuddy.job_search import JobSearchError, fetch_jobs, search_jobs
+from agents.xbuddy.job_search import (
+    JobSearchError,
+    build_params,
+    fetch_jobs,
+    location_term,
+    search_jobs,
+    search_words,
+)
 from agents.xbuddy.models import default_state
 from agents.xbuddy.nodes import generate_decision as decision_mod
 from agents.xbuddy.nodes import generate_reply as reply_mod
@@ -43,32 +50,30 @@ from core.settings import settings
 
 CONFIG = {"configurable": {"thread_id": "t", "user_id": 1}}
 
-ADZUNA_OK = {
-    "results": [
-        {
-            "title": "Backend Developer (Python)",
-            "company": {"display_name": "Maple Systems"},
-            "location": {"display_name": "Toronto, Ontario"},
-            "created": "2026-10-01T09:30:00Z",
-            "redirect_url": "https://www.adzuna.ca/land/ad/1",
-            "description": "We are looking for a backend developer with Django and...",
-            "salary_min": 90000,
-            "salary_max": 120000,
-        },
-        {"title": "No link, so it is dropped", "company": {"display_name": "Ghost Inc"}},
-    ]
-}
+POSTING_URL = "https://boards.greenhouse.io/maple/jobs/101"
+TRACKER_OK = [
+    {
+        "title": "Backend Developer (Python)",
+        "company": "Maple Systems",
+        "location": "Toronto, Ontario",
+        "url": POSTING_URL,
+        "ats_platform": "greenhouse",
+        "date_discovered": "2026-10-01T09:30:00+00:00",
+        "description": "We are looking for a backend developer with Django and...",
+    },
+    {"title": "No link, so it is dropped", "company": "Ghost Inc", "url": None},
+]
+KEY = "anon-key-456"
 
 
 # --- helpers ---------------------------------------------------------------------------------
 
 
 @pytest.fixture
-def adzuna(monkeypatch):
-    """Configure fake keys and return a function that installs a fake Adzuna server."""
-    monkeypatch.setattr(settings, "ADZUNA_APP_ID", SecretStr("id-123"))
-    monkeypatch.setattr(settings, "ADZUNA_APP_KEY", SecretStr("key-456"))
-    monkeypatch.setattr(settings, "JOB_SEARCH_COUNTRY", "ca")
+def tracker(monkeypatch):
+    """Configure job-tracker settings and return a function that installs a fake server."""
+    monkeypatch.setattr(settings, "JOB_TRACKER_SUPABASE_URL", "https://tracker.supabase.co/")
+    monkeypatch.setattr(settings, "JOB_TRACKER_SUPABASE_KEY", SecretStr(KEY))
     monkeypatch.setattr(job_search, "BACKOFF_SECONDS", (0, 0))  # no real waiting in tests
 
     def install(*responses):
@@ -147,53 +152,93 @@ def skill_gap_state(**extra) -> dict:
     return state
 
 
-# --- the Adzuna client -----------------------------------------------------------------------
+# --- turning a request into a safe query -----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("query", "words"),
+    [
+        ("backend developer", ["backend", "developer"]),
+        ("Python developer jobs in Toronto", ["python", "developer", "toronto"]),
+        ("node.js engineer", ["node", "js", "engineer"]),
+        ("C# / C++ roles", ["c#", "c++"]),
+        ("a b c d e f g", ["b", "c", "d", "e"]),  # at most four words, filler dropped
+    ],
+)
+def test_search_words_keep_letters_digits_plus_and_hash_only(query, words):
+    assert search_words(query) == words
+
+
+def test_model_text_cannot_change_the_shape_of_the_filter():
+    words = search_words("backend),title.neq.x,(or")
+    params = build_params(words, location_term("Toronto),(x"), 5)
+    assert params["and"] == (
+        "(or(title.ilike.*backend*,company.ilike.*backend*),"
+        "or(title.ilike.*title*,company.ilike.*title*),"
+        "or(title.ilike.*neq*,company.ilike.*neq*),"
+        "or(title.ilike.*x*,company.ilike.*x*))"
+    )
+    assert params["location"] == "ilike.*toronto*"
+
+
+@pytest.mark.parametrize(
+    ("given", "term"), [("Toronto, ON", "toronto"), ("North York", "north york"), ("", "")]
+)
+def test_location_uses_the_city_before_the_comma(given, term):
+    assert location_term(given) == term
+
+
+# --- the job-tracker client ------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_fetch_sends_the_query_and_returns_clean_postings(adzuna):
-    requests = adzuna(httpx.Response(200, json=ADZUNA_OK))
+async def test_fetch_queries_the_jobs_table_and_returns_clean_postings(tracker):
+    requests = tracker(httpx.Response(200, json=TRACKER_OK))
 
-    postings = await fetch_jobs("backend developer", "Toronto", "ca")
+    postings = await fetch_jobs("backend developer", "Toronto, ON")
 
     assert len(requests) == 1
-    url = requests[0].url
-    assert url.path == "/v1/api/jobs/ca/search/1"
-    assert url.params["what"] == "backend developer"
-    assert url.params["where"] == "Toronto"
-    assert url.params["app_id"] == "id-123" and url.params["app_key"] == "key-456"
+    sent = requests[0]
+    assert str(sent.url).startswith("https://tracker.supabase.co/rest/v1/jobs?")
+    assert sent.headers["apikey"] == KEY
+    assert "authorization" not in sent.headers  # the anon key only, no user login
+    assert sent.url.params["order"] == "date_discovered.desc"
+    assert sent.url.params["limit"] == "5"
+    assert sent.url.params["location"] == "ilike.*toronto*"
+    assert "description" not in sent.url.params["select"]  # never fetched
     assert [p.model_dump() for p in postings] == [
         {
             "title": "Backend Developer (Python)",
             "company": "Maple Systems",
             "location": "Toronto, Ontario",
             "posted": "2026-10-01",
-            "url": "https://www.adzuna.ca/land/ad/1",
+            "board": "greenhouse",
+            "url": POSTING_URL,
         }
     ]
 
 
 @pytest.mark.asyncio
-async def test_transient_failures_are_retried_until_one_succeeds(adzuna):
-    requests = adzuna(
+async def test_transient_failures_are_retried_until_one_succeeds(tracker):
+    requests = tracker(
         httpx.Response(503),
         httpx.ConnectTimeout("slow"),
-        httpx.Response(200, json=ADZUNA_OK),
+        httpx.Response(200, json=TRACKER_OK),
     )
 
-    postings = await fetch_jobs("backend developer", None, "ca")
+    postings = await fetch_jobs("backend developer")
 
     assert len(requests) == 3
     assert postings[0].company == "Maple Systems"
-    assert "where" not in requests[0].url.params  # no location means the whole country
+    assert "location" not in requests[0].url.params  # no location: all of the coverage area
 
 
 @pytest.mark.asyncio
-async def test_retries_stop_after_the_attempt_limit(adzuna):
-    requests = adzuna(httpx.Response(503))
+async def test_retries_stop_after_the_attempt_limit(tracker):
+    requests = tracker(httpx.Response(503))
 
     with pytest.raises(JobSearchError) as error:
-        await fetch_jobs("backend developer", None, "ca")
+        await fetch_jobs("backend developer")
 
     assert len(requests) == job_search.MAX_ATTEMPTS
     assert error.value.retryable
@@ -201,23 +246,33 @@ async def test_retries_stop_after_the_attempt_limit(adzuna):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", [401, 403, 400])
-async def test_permanent_failures_are_not_retried(adzuna, status):
-    requests = adzuna(httpx.Response(status))
+async def test_permanent_failures_are_not_retried(tracker, status):
+    requests = tracker(httpx.Response(status))
 
     with pytest.raises(JobSearchError) as error:
-        await fetch_jobs("backend developer", None, "ca")
+        await fetch_jobs("backend developer")
 
     assert len(requests) == 1
     assert not error.value.retryable
 
 
 @pytest.mark.asyncio
-async def test_missing_keys_fail_without_calling_the_api(adzuna, monkeypatch):
-    requests = adzuna(httpx.Response(200, json=ADZUNA_OK))
-    monkeypatch.setattr(settings, "ADZUNA_APP_KEY", None)
+async def test_missing_key_fails_without_calling_the_api(tracker, monkeypatch):
+    requests = tracker(httpx.Response(200, json=TRACKER_OK))
+    monkeypatch.setattr(settings, "JOB_TRACKER_SUPABASE_KEY", None)
 
     with pytest.raises(JobSearchError, match="not set up"):
-        await fetch_jobs("backend developer", None, "ca")
+        await fetch_jobs("backend developer")
+
+    assert requests == []
+
+
+@pytest.mark.asyncio
+async def test_a_query_of_only_filler_words_is_refused_without_calling_the_api(tracker):
+    requests = tracker(httpx.Response(200, json=TRACKER_OK))
+
+    with pytest.raises(JobSearchError, match="job title or skill"):
+        await fetch_jobs("jobs in the")
 
     assert requests == []
 
@@ -226,20 +281,22 @@ async def test_missing_keys_fail_without_calling_the_api(adzuna, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_tool_returns_results_without_salary_or_description(adzuna):
-    adzuna(httpx.Response(200, json=ADZUNA_OK))
+async def test_tool_returns_results_with_source_and_no_description(tracker):
+    tracker(httpx.Response(200, json=TRACKER_OK))
 
     raw = await search_jobs.ainvoke({"query": "backend developer", "location": "Toronto"})
 
     result = json.loads(raw)
-    assert result["status"] == "ok" and result["source"] == "Adzuna" and result["country"] == "ca"
-    assert result["results"][0]["url"] == "https://www.adzuna.ca/land/ad/1"
-    assert "salary" not in raw and "90000" not in raw and "description" not in raw
+    assert result["status"] == "ok"
+    assert "company career boards" in result["source"]
+    assert result["covers"] == "software roles in Ontario and remote Canada"
+    assert result["results"][0]["url"] == POSTING_URL
+    assert "description" not in raw and "Django" not in raw
 
 
 @pytest.mark.asyncio
-async def test_tool_reports_failure_as_data_and_never_raises(adzuna):
-    adzuna(httpx.ReadTimeout("no answer"))
+async def test_tool_reports_failure_as_data_and_never_raises(tracker):
+    tracker(httpx.ReadTimeout("no answer"))
 
     result = json.loads(await search_jobs.ainvoke({"query": "backend developer"}))
 
@@ -250,22 +307,23 @@ async def test_tool_reports_failure_as_data_and_never_raises(adzuna):
 
 
 @pytest.mark.asyncio
-async def test_tool_never_leaks_the_api_key_in_an_error(adzuna):
-    adzuna(httpx.Response(401, text="invalid app_key key-456"))
+async def test_tool_never_leaks_the_key_in_an_error(tracker):
+    tracker(httpx.Response(401, text=f"invalid api key {KEY}"))
 
     raw = await search_jobs.ainvoke({"query": "backend developer"})
 
     assert json.loads(raw)["status"] == "error"
-    assert "key-456" not in raw and "id-123" not in raw
+    assert KEY not in raw
 
 
 @pytest.mark.asyncio
-async def test_tool_says_no_results_when_nothing_matches(adzuna):
-    adzuna(httpx.Response(200, json={"results": []}))
+async def test_tool_says_no_results_and_what_it_covers(tracker):
+    tracker(httpx.Response(200, json=[]))
 
     result = json.loads(await search_jobs.ainvoke({"query": "underwater basket weaver"}))
 
     assert result["status"] == "no_results"
+    assert result["covers"] == "software roles in Ontario and remote Canada"
 
 
 def test_tool_schema_is_plain_strings_with_only_the_query_required():
@@ -274,18 +332,7 @@ def test_tool_schema_is_plain_strings_with_only_the_query_required():
     assert {k: v["type"] for k, v in schema["properties"].items()} == {
         "query": "string",
         "location": "string",
-        "country": "string",
     }
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(("given", "used"), [("GB", "gb"), ("Canada", "ca"), ("", "ca")])
-async def test_tool_uses_a_known_country_or_the_default(adzuna, given, used):
-    requests = adzuna(httpx.Response(200, json=ADZUNA_OK))
-
-    await search_jobs.ainvoke({"query": "backend developer", "country": given})
-
-    assert requests[0].url.path == f"/v1/api/jobs/{used}/search/1"
 
 
 # --- generate_reply and the tools node -------------------------------------------------------
@@ -306,8 +353,8 @@ async def test_a_tool_request_is_parked_in_scratch_and_is_not_a_reply(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_tools_node_answers_every_call_including_broken_ones(adzuna):
-    adzuna(httpx.Response(200, json=ADZUNA_OK))
+async def test_tools_node_answers_every_call_including_broken_ones(tracker):
+    tracker(httpx.Response(200, json=TRACKER_OK))
     request = AIMessage(content="", tool_calls=[
         {"name": "search_jobs", "args": {"query": "backend developer"}, "id": "a"},
         {"name": "search_jobs", "args": {"location": "Toronto"}, "id": "b"},  # no query
@@ -422,11 +469,11 @@ def _decision_stays(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_graph_turn_searches_then_replies_and_keeps_the_transcript_clean(
-    adzuna, monkeypatch
+    tracker, monkeypatch
 ):
     from agents.xbuddy.agent import graph
 
-    requests = adzuna(httpx.Response(200, json=ADZUNA_OK))
+    requests = tracker(httpx.Response(200, json=TRACKER_OK))
     _decision_stays(monkeypatch)
     model = use_reply_model(
         monkeypatch,
@@ -438,7 +485,7 @@ async def test_graph_turn_searches_then_replies_and_keeps_the_transcript_clean(
 
     out = await graph.ainvoke({"messages": [HumanMessage("No postings yet. Find some?")]}, cfg)
 
-    assert len(requests) == 1 and requests[0].url.params["where"] == "Toronto"
+    assert len(requests) == 1 and requests[0].url.params["location"] == "ilike.*toronto*"
     tool_result = model.prompts[1][-1]
     assert isinstance(tool_result, ToolMessage)
     assert "Maple Systems" in tool_result.content
@@ -451,10 +498,10 @@ async def test_graph_turn_searches_then_replies_and_keeps_the_transcript_clean(
 
 
 @pytest.mark.asyncio
-async def test_graph_turn_survives_the_job_api_being_down(adzuna, monkeypatch):
+async def test_graph_turn_survives_the_job_api_being_down(tracker, monkeypatch):
     from agents.xbuddy.agent import graph
 
-    requests = adzuna(httpx.Response(503))
+    requests = tracker(httpx.Response(503))
     _decision_stays(monkeypatch)
     model = use_reply_model(
         monkeypatch,
@@ -511,12 +558,12 @@ def client(monkeypatch, tmp_path):
     graph.checkpointer = original
 
 
-def test_stream_shows_the_answer_and_never_the_tool_traffic(client, adzuna, monkeypatch):
+def test_stream_shows_the_answer_and_never_the_tool_traffic(client, tracker, monkeypatch):
     import asyncio
 
     from agents.xbuddy.agent import graph
 
-    requests = adzuna(httpx.Response(200, json=ADZUNA_OK))
+    requests = tracker(httpx.Response(200, json=TRACKER_OK))
     _decision_stays(monkeypatch)
     answer = "I found one opening: Backend Developer (Python) at Maple Systems."
     use_reply_model(monkeypatch, AIMessage("What is your current job title?"))
@@ -539,7 +586,7 @@ def test_stream_shows_the_answer_and_never_the_tool_traffic(client, adzuna, monk
     messages = [e["content"] for e in events if e["type"] == "message"]
     assert [m["type"] for m in messages] == ["ai"] and messages[0]["content"] == answer
     assert not any(e["type"] == "error" for e in events)
-    assert "adzuna.ca/land" not in "\n".join(raw)  # the raw tool result is never sent
+    assert "greenhouse" not in "\n".join(raw)  # the raw tool result is never sent
 
     history = client.post("/history", json={"thread_id": thread_id}).json()
     assert [m["type"] for m in history["messages"]] == ["human", "ai", "human", "ai"]

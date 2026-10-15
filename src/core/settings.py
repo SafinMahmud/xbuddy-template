@@ -80,11 +80,11 @@ class Settings(BaseSettings):
 
     OPENWEATHERMAP_API_KEY: SecretStr | None = None
 
-    # Job search tool (Adzuna, free key from https://developer.adzuna.com/signup).
+    # Job search tool: reads the public `jobs` table of the job-tracker project
+    # (github.com/SafinMahmud/job-tracker) through Supabase's REST API.
     # Without both values the tool reports "not set up" instead of searching.
-    ADZUNA_APP_ID: SecretStr | None = None
-    ADZUNA_APP_KEY: SecretStr | None = None
-    JOB_SEARCH_COUNTRY: str = "ca"  # Adzuna country code used when the model gives none
+    JOB_TRACKER_SUPABASE_URL: str | None = None
+    JOB_TRACKER_SUPABASE_KEY: SecretStr | None = None  # the project's public anon key
 
 
     LANGCHAIN_TRACING_V2: bool = False

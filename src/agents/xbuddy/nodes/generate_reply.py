@@ -42,12 +42,15 @@ TOOL_SECTIONS = frozenset(
     {SectionID.TARGET_ROLE, SectionID.SKILL_GAP, SectionID.APPLICATION_STRATEGY}
 )
 JOB_SEARCH_RULES = """JOB SEARCH TOOL
-- search_jobs looks up real, current job openings. Call it only when the user asks
-  to see real openings, or says they have no job posting to paste.
-- Build the query from the user's target titles and location unless they ask for
-  something else. One search per message is normally enough.
+- search_jobs looks up recent job openings from company career boards. It only
+  covers software roles in Ontario and remote Canada. Call it only when the user
+  asks to see real openings, or says they have no job posting to paste. If they
+  target another field or region, say the search does not cover it instead.
+- Build the query from one to three words of the user's target title (for example
+  "backend" or "python developer") and their city. If nothing is found, you may
+  search once more with fewer words.
 - Show at most five results as a list: title, company, location, date posted, and
-  the link, then say the listings come from the source named in the result.
+  the link, then say the listings come from company career boards.
 - Use only what the tool returned. Never invent, complete, or reword a posting, and
   never mention salary.
 - In the Skill Gap section the results are leads only: ask the user to open the ones
