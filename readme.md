@@ -95,18 +95,20 @@ flowchart LR
 
 ## Build history
 
-Each phase was one pull request with a LangSmith trace and a written tradeoff.
+Each phase was one pull request with a written tradeoff and evidence: LangSmith
+traces where the PR made model calls, and state or smoke-test results where it did not.
 
-| PR | What | Trace | Tests |
+| PR | What | Evidence | Tests at merge |
 | --- | --- | --- | --- |
-| [1](https://github.com/SafinMahmud/xbuddy-template/pull/1) | State schema and `initialize` | state evidence in the PR | 16 |
-| [2](https://github.com/SafinMahmud/xbuddy-template/pull/2) | Router and five section prompts | no model calls yet | 43 |
-| [3](https://github.com/SafinMahmud/xbuddy-template/pull/3) | Streamed reply and validated decision | [turn 1](https://smith.langchain.com/public/5f043fa3-98e4-46f9-819e-6b21d4204fd3/r), [turn 2](https://smith.langchain.com/public/00fe58cb-1d60-4640-8508-63b9feb28c15/r) | 86 |
-| [4](https://github.com/SafinMahmud/xbuddy-template/pull/4) | Memory, extraction with evidence, Supabase mirror | [1](https://smith.langchain.com/public/896d601f-d4c2-4516-8278-035d8fe1f83a/r), [2](https://smith.langchain.com/public/6389234e-9b4f-4d01-bdb8-80d49df86bb2/r) | 114 |
-| [5](https://github.com/SafinMahmud/xbuddy-template/pull/5) | Roadmap with quality checks and fallback | [roadmap](https://smith.langchain.com/public/79b7b30d-16e9-4711-9b62-d55cfb98070b/r) | 182 |
-| [6](https://github.com/SafinMahmud/xbuddy-template/pull/6) | FastAPI, Render deploy, Postgres, smoke test | [1](https://smith.langchain.com/public/bf7b0b9d-7f11-41f4-907e-31f83692508c/r), [2](https://smith.langchain.com/public/7f4e2016-1d8c-4740-b213-4bb69a20fa93/r) | 224 |
-| [7](https://github.com/SafinMahmud/xbuddy-template/pull/7) | Next.js frontend on Vercel | signed-out smoke test, 13/13 | 225 |
-| [8](https://github.com/SafinMahmud/xbuddy-template/pull/8) | Tool use: job search over job-tracker data | [search](https://smith.langchain.com/public/98a603ed-23c2-41d6-8721-1d58bf1f8f05/r/2ab3fff0-8344-45b1-9525-73cc63468b5d), [failure](https://smith.langchain.com/public/bff0cb29-9c61-4634-83ea-2c976c5f354b/r/109a6a7b-b975-4d9a-b674-283c09289fde) | 270 |
+| [1](https://github.com/SafinMahmud/xbuddy-template/pull/1) | State schema and `initialize` | state evidence in the PR (no model calls yet) | 16 |
+| [2](https://github.com/SafinMahmud/xbuddy-template/pull/2) | Router and five section prompts | route and state evidence in the PR (no model calls yet) | 43 |
+| [3](https://github.com/SafinMahmud/xbuddy-template/pull/3) | Streamed reply and validated decision | LangSmith: [turn 1](https://smith.langchain.com/public/5f043fa3-98e4-46f9-819e-6b21d4204fd3/r), [turn 2](https://smith.langchain.com/public/00fe58cb-1d60-4640-8508-63b9feb28c15/r) | 86 |
+| [4](https://github.com/SafinMahmud/xbuddy-template/pull/4) | Memory, extraction with evidence, Supabase mirror | LangSmith: [1](https://smith.langchain.com/public/896d601f-d4c2-4516-8278-035d8fe1f83a/r), [2](https://smith.langchain.com/public/6389234e-9b4f-4d01-bdb8-80d49df86bb2/r) | 114 |
+| [5](https://github.com/SafinMahmud/xbuddy-template/pull/5) | Roadmap with quality checks and fallback | LangSmith: [roadmap](https://smith.langchain.com/public/79b7b30d-16e9-4711-9b62-d55cfb98070b/r) | 182 |
+| [6](https://github.com/SafinMahmud/xbuddy-template/pull/6) | FastAPI, Render deploy, Postgres, smoke test | LangSmith: [1](https://smith.langchain.com/public/bf7b0b9d-7f11-41f4-907e-31f83692508c/r), [2](https://smith.langchain.com/public/7f4e2016-1d8c-4740-b213-4bb69a20fa93/r) | 224 |
+| [7](https://github.com/SafinMahmud/xbuddy-template/pull/7) | Next.js frontend on Vercel | frontend smoke test, signed out, full conversation to the roadmap: 13/13 checks (not a trace) | 225 |
+| [8](https://github.com/SafinMahmud/xbuddy-template/pull/8) | Tool use: job search over job-tracker data | LangSmith: [search](https://smith.langchain.com/public/98a603ed-23c2-41d6-8721-1d58bf1f8f05/r/2ab3fff0-8344-45b1-9525-73cc63468b5d), [failure](https://smith.langchain.com/public/bff0cb29-9c61-4634-83ea-2c976c5f354b/r/109a6a7b-b975-4d9a-b674-283c09289fde) | 258 |
+| [9](https://github.com/SafinMahmud/xbuddy-template/pull/9) | Review follow-up: quoted search filter, hostile-input tests | tests only | 270 |
 
 ## Run it locally
 
@@ -129,7 +131,7 @@ Deployment (Render for the API, Vercel for the app) is in
 ## Tests
 
 ```bash
-uv run pytest tests/xbuddy -q                                   # 270 tests, no keys or network
+uv run pytest tests/xbuddy -q                                   # every test runs without keys or network
 node frontend/scripts/smoke.mjs https://xbuddy-template.vercel.app --full   # signed-out, real model
 ```
 
