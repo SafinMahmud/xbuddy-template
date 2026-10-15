@@ -1,153 +1,174 @@
-# XBuddy Template
+# JobBuddy
 
-Starter template for the **AI Engineer Residency**. You'll build your own XBuddy — a conversational AI agent that guides users through a structured multi-section dialogue using LangGraph.
+A job search coach built as a LangGraph agent. JobBuddy walks you through five
+sections (your background, the role you want, the skill gaps real job postings
+reveal, how you will apply, and how you will prepare for interviews), then writes
+an eight-week roadmap built only from what you confirmed.
 
-## What you're building
+**Try it:** https://xbuddy-template.vercel.app (API docs: https://jobbuddy-api.onrender.com/docs)
 
-Your XBuddy is a domain-specific agent that:
-- Guides users through 5 conversation sections
-- Remembers context across turns
-- Streams responses in real time
-- Persists state to Supabase
-- Produces a final output artifact
+> **Demo only.** There is no sign-in: anyone with the link can use it, and anyone
+> who knows a conversation's id can read that conversation. Do not enter personal or
+> sensitive information. The free API host sleeps when idle, so the first reply can
+> take up to a minute.
 
-Choose your domain at signup: **StudentBuddy** / **JobBuddy** / **FitnessBuddy**
+Built by Safin Mahmud during the Brave Career AI Engineer Residency, starting from
+the [xbuddy-template](https://github.com/TryMOSS/xbuddy-template).
 
-## Architecture
+## What it does
 
-Your agent follows the same graph pattern as [FounderBuddy](https://github.com/Victoria824/FounderBuddy):
+| Section | JobBuddy collects | Confirmed before moving on |
+| --- | --- | --- |
+| Background | current role, past roles, years of experience, skills, education | yes |
+| Target role | titles, city, work arrangement, priorities | yes |
+| Skill gap | real job postings you paste, the requirements in them, your gaps, one learning action | yes |
+| Application strategy | resume and LinkedIn changes, channels, networking, weekly targets | yes |
+| Interview preparation | interview types, weak areas, practice plan, stories | yes |
 
+When the last section is confirmed, JobBuddy writes the roadmap: where you are, your
+target, ranked skill gaps with the postings that ask for them, a learning plan,
+application strategy, interview prep, an 8-week plan and this week's checklist.
+
+If you have no postings to paste, ask JobBuddy to find some. It searches recent
+Ontario and remote-Canada software openings from company career boards (see
+[Job search tool](docs/job-search-tool.md)).
+
+## How it works
+
+Every message runs one pass through a LangGraph state machine:
+
+```mermaid
+flowchart LR
+    S([message]) --> I[initialize]
+    I --> R[router]
+    R --> G[generate_reply]
+    G -- "model asks for a search" --> T[tools: search_jobs]
+    T --> G
+    G --> D[generate_decision]
+    D --> M[memory_updater]
+    M -- "section confirmed, all done" --> P[implementation: roadmap]
+    M -- "otherwise" --> E([reply sent])
+    P --> E
 ```
-START → initialize → router → generate_reply → generate_decision
-                        ↑          ↓  ↑               ↓
-                        │         tools               │
-                        └──────── memory_updater ─────┘
-                                       ↓
-                               implementation → END
+
+| Node | Job |
+| --- | --- |
+| `initialize` | Restores the thread's state, or creates it for a new user. Safe to run every turn. |
+| `router` | Applies the last decision in code: stay, move to the next unfinished section, or reopen an earlier one. |
+| `generate_reply` | Writes the streamed reply from the section's prompt and short memory. Can ask for a job search. |
+| `tools` | Runs the search the model asked for. Tool traffic never enters the chat transcript. |
+| `generate_decision` | Returns JSON (stay, next, modify) that code validates. Advancing needs a confirmed summary with every required field. |
+| `memory_updater` | Saves drafts, stores confirmed summaries, extracts structured data with source evidence, retries failed extraction. |
+| `implementation` | Writes the roadmap, checks it, rewrites once if needed, and falls back to a deterministic version. |
+
+The deployed system:
+
+```mermaid
+flowchart LR
+    B[Browser] --> V["Next.js app on Vercel<br/>(server-side /api routes)"]
+    V --> A["FastAPI + LangGraph on Render"]
+    A --> L["Groq: openai/gpt-oss-120b"]
+    A --> P[("Postgres: conversation checkpoints")]
+    A --> J[("job-tracker Supabase: jobs table, read-only")]
+    A -.-> S["LangSmith traces"]
 ```
 
-`generate_reply ⇄ tools` is JobBuddy's tool loop: the model can call `search_jobs`
-to fetch real openings mid-conversation. See [docs/job-search-tool.md](docs/job-search-tool.md).
+## Design decisions
 
-## Getting started
+- **Code decides, the model proposes.** The model suggests stay, next or modify;
+  code validates it and refuses to advance without a confirmed summary that covers
+  every required field. A model mistake can't skip a section or lose its data.
+- **Nothing unconfirmed or untraceable is saved.** Drafts and confirmed answers are
+  kept apart. Every skill-gap requirement must quote a posting the user supplied,
+  and how often it appears is counted from that evidence, never stated by the model.
+- **The roadmap is checked before anyone sees it.** Code checks structure,
+  grounding, completeness and contradictions. A failing draft gets one rewrite, then
+  a deterministic fallback, so five sections of effort always end in a roadmap.
+- **Conversations survive restarts.** LangGraph checkpoints live in Postgres. A
+  returning user reloads the page and continues where they left off.
+- **Tools never break a turn.** The job search retries transient errors, reports
+  the rest as data the model explains, is capped at 2 searches per turn, and falls
+  back to a reply without tools if the provider rejects a tool call.
+- **Test against real things.** API tests run the real app and database with fake
+  models, and a signed-out smoke test runs the live site. Together they caught a
+  startup crash, an async bug, and a stream that silently dropped the roadmap.
 
-### Prerequisites
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/) package manager
-- An OpenAI or Anthropic API key
+## Build history
 
-### Setup
+Each phase was one pull request with a LangSmith trace and a written tradeoff.
+
+| PR | What | Trace | Tests |
+| --- | --- | --- | --- |
+| [1](https://github.com/SafinMahmud/xbuddy-template/pull/1) | State schema and `initialize` | state evidence in the PR | 16 |
+| [2](https://github.com/SafinMahmud/xbuddy-template/pull/2) | Router and five section prompts | no model calls yet | 43 |
+| [3](https://github.com/SafinMahmud/xbuddy-template/pull/3) | Streamed reply and validated decision | [turn 1](https://smith.langchain.com/public/5f043fa3-98e4-46f9-819e-6b21d4204fd3/r), [turn 2](https://smith.langchain.com/public/00fe58cb-1d60-4640-8508-63b9feb28c15/r) | 86 |
+| [4](https://github.com/SafinMahmud/xbuddy-template/pull/4) | Memory, extraction with evidence, Supabase mirror | [1](https://smith.langchain.com/public/896d601f-d4c2-4516-8278-035d8fe1f83a/r), [2](https://smith.langchain.com/public/6389234e-9b4f-4d01-bdb8-80d49df86bb2/r) | 114 |
+| [5](https://github.com/SafinMahmud/xbuddy-template/pull/5) | Roadmap with quality checks and fallback | [roadmap](https://smith.langchain.com/public/79b7b30d-16e9-4711-9b62-d55cfb98070b/r) | 182 |
+| [6](https://github.com/SafinMahmud/xbuddy-template/pull/6) | FastAPI, Render deploy, Postgres, smoke test | [1](https://smith.langchain.com/public/bf7b0b9d-7f11-41f4-907e-31f83692508c/r), [2](https://smith.langchain.com/public/7f4e2016-1d8c-4740-b213-4bb69a20fa93/r) | 224 |
+| [7](https://github.com/SafinMahmud/xbuddy-template/pull/7) | Next.js frontend on Vercel | signed-out smoke test, 13/13 | 225 |
+| [8](https://github.com/SafinMahmud/xbuddy-template/pull/8) | Tool use: job search over job-tracker data | [search](https://smith.langchain.com/public/98a603ed-23c2-41d6-8721-1d58bf1f8f05/r/2ab3fff0-8344-45b1-9525-73cc63468b5d), [failure](https://smith.langchain.com/public/bff0cb29-9c61-4634-83ea-2c976c5f354b/r/109a6a7b-b975-4d9a-b674-283c09289fde) | 270 |
+
+## Run it locally
+
+Needs Python 3.11+ with [uv](https://docs.astral.sh/uv/), Node 20+, and a free
+[Groq](https://console.groq.com/keys) key.
 
 ```bash
-# Install dependencies
+cp .env.example .env               # add GROQ_API_KEY (and LangSmith, job search keys if you have them)
 uv sync
+uv run python src/run_service.py   # API on http://localhost:8080
 
-# Copy environment config
-cp .env.example .env
-# Edit .env with your API keys
-
-# Run the service
-uv run python src/run_service.py
-```
-
-The API will be available at `http://localhost:8080`.
-
-### Frontend
-
-A Next.js chat UI for JobBuddy: progress through the five sections, streamed replies,
-and the finished roadmap as a document you can copy or download.
-
-```bash
 cd frontend
 npm install
-cp .env.example .env.local   # JOBBUDDY_API_URL=http://localhost:8080
-npm run dev                  # http://localhost:3000
+npm run dev                        # app on http://localhost:3000
 ```
 
-It deploys to Vercel with one environment variable: see
-[docs/deployment.md](docs/deployment.md#frontend-on-vercel).
+Deployment (Render for the API, Vercel for the app) is in
+[docs/deployment.md](docs/deployment.md).
 
-## Deployment
-
-The API deploys to Render's free plan with `render.yaml`: see [docs/deployment.md](docs/deployment.md).
-
-> **Demo only.** The deployed API has no sign-in. Anyone with the URL can use it, and
-> anyone who knows a thread id can read that thread. Do not enter personal or sensitive
-> information, and do not send real users to it until `AUTH_SECRET` and rate limits are on.
-
-Check a deployment, signed out and after a restart:
+## Tests
 
 ```bash
-uv run python src/smoke_test.py https://your-app.onrender.com --expect open
-uv run python src/smoke_test.py https://your-app.onrender.com --resume <thread id>
+uv run pytest tests/xbuddy -q                                   # 270 tests, no keys or network
+node frontend/scripts/smoke.mjs https://xbuddy-template.vercel.app --full   # signed-out, real model
 ```
 
-## Your first task
+The full smoke test plays a job seeker through all five sections on the live site
+and checks the roadmap comes back.
 
-**Start with Issue #1** in this repo. Fill in your requirements directly in the issue. When you're done, tag @MOSS in Slack with the issue link.
+## Limits and next steps
 
-Don't write any code until MOSS signs off on your requirements.
+- **No accounts.** The demo is open by design. Real users need sign-in, per-user
+  data isolation and rate limits.
+- **Job search covers what job-tracker scrapes:** software roles in Ontario and
+  remote Canada, matched by keywords in the title or company.
+- **Postings are pasted, not linked.** LinkedIn and similar sites block automated
+  reading, so the skill gap uses the text the user pastes.
+- **Quality checks are objective only.** A judge model or human rubric for tone and
+  usefulness would be the next evaluation step.
+- **Free hosting.** Render's free Postgres expires after 30 days, and the API
+  sleeps when idle.
 
-## Project structure
+## Reflection
 
-```
-src/
-├── agents/
-│   ├── agents.py              # Agent registry
-│   └── xbuddy/                # Your agent — this is where you work
-│       ├── enums.py           # SectionID, SectionStatus, RouterDirective
-│       ├── models.py          # XBuddyState, XBuddyData, output models
-│       ├── graph/
-│       │   ├── builder.py     # StateGraph wiring
-│       │   └── routes.py      # Conditional edge functions
-│       ├── nodes/
-│       │   ├── initialize.py      # PR 1
-│       │   ├── router.py          # PR 2
-│       │   ├── generate_reply.py  # PR 3
-│       │   ├── generate_decision.py # PR 3
-│       │   ├── memory_updater.py  # PR 4
-│       │   └── implementation.py  # PR 5
-│       ├── sections/
-│       │   ├── base_prompt.py # Shared rules + SectionTemplate class
-│       │   ├── section_1/     # Your sections — rename these
-│       │   ├── section_2/
-│       │   ├── section_3/
-│       │   ├── section_4/
-│       │   └── section_5/
-│       ├── prompts.py         # Section template mapping + navigation
-│       └── tools.py           # get_context tool
-├── core/                      # Settings, LLM factory, logging
-├── memory/                    # Checkpointer backends (SQLite, Postgres)
-├── integrations/supabase/     # Supabase client for persistence
-├── schema/                    # Shared types
-└── service/                   # FastAPI endpoints (stream, invoke, history)
-```
+The hardest part was not getting the model to talk; it was deciding what the
+model is allowed to decide. Early on, a single confident "next" from the model
+could skip a section and lose everything the user said in it. Moving every routing
+and saving decision into code that checks the model's claims made the agent
+predictable, and made each bug reproducible in a test.
 
-## PR plan
+Building on someone else's template taught me to distrust code that looks finished.
+The service didn't import, the stream filter dropped real replies, the defaults in
+the state class were silently ignored, and the stream lost the roadmap in the turn
+that wrote it. None of these showed up until I tested against real storage and ran
+the deployed site signed out.
 
-| PR | Scope | Files |
-|----|-------|-------|
-| PR 1 | State schema + `initialize` node | `models.py`, `enums.py`, `nodes/initialize.py` |
-| PR 2 | `router` + section loader | `nodes/router.py`, `prompts.py`, `tools.py`, `sections/*` |
-| PR 3 | `generate_reply` + `generate_decision` | `nodes/generate_reply.py`, `nodes/generate_decision.py` |
-| PR 4 | `memory_updater` + Supabase | `nodes/memory_updater.py`, Supabase integration |
-| PR 5 | `implementation` node (final output) | `nodes/implementation.py` |
-| PR 6 | FastAPI `/invoke` `/stream` `/history` | `service/service.py` — already working, customize |
-| Phase 8 | Tool use: `search_jobs` (real openings) | `job_search.py`, `nodes/run_tools.py`, `nodes/generate_reply.py` |
-
-Every PR must include a LangSmith trace URL and tradeoff reasoning.
-
-## Reference materials
-- [LangGraph cheatsheet](docs/langgraph-cheatsheet.md)
-- [LangSmith setup](docs/langsmith-setup.md)
+If I started again, I would write the evaluation first: a set of recorded
+conversations with the expected route and saved data for each turn. It would have
+caught most of the bugs above sooner, and it would let me compare models and
+prompts with numbers instead of impressions.
 
 ## Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Agent orchestration | LangGraph (StateGraph, conditional edges, loops) |
-| LLM interface | LangChain |
-| Observability | LangSmith (tracing, evals) |
-| API | FastAPI (streaming SSE + sync endpoints) |
-| Database | Supabase (agent state persistence) |
-| Frontend | Next.js + React |
+LangGraph, LangChain, FastAPI, Groq (`openai/gpt-oss-120b`), Postgres on Render,
+Supabase, LangSmith, Next.js 15 on Vercel.
