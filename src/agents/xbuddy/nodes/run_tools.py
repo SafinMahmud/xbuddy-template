@@ -8,6 +8,9 @@ the failure rules are worth seeing in one place:
     raises all become an error result for the model, never an exception;
   - every tool call gets exactly one ToolMessage back, which is what chat model
     APIs require before the model can answer.
+
+Postings read by read_job_posting are also kept in state (fetched_postings), so
+the Skill Gap section can quote them on later turns and extraction can use them.
 """
 
 import json
@@ -17,14 +20,27 @@ from typing import Any
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 
-from ..job_search import TOOLS_BY_NAME
+from ..job_posting import remember_postings
 from ..models import XBuddyState
+from ..tool_registry import TOOLS_BY_NAME
 
 logger = logging.getLogger(__name__)
 
 
 def _error(message: str) -> str:
     return json.dumps({"status": "error", "message": message})
+
+
+def _posting(result: ToolMessage) -> dict | None:
+    """The posting inside a successful read_job_posting result, if there is one."""
+    if result.name != "read_job_posting":
+        return None
+    try:
+        data = json.loads(result.content)
+    except (TypeError, ValueError):
+        return None
+    posting = data.get("posting") if data.get("status") == "ok" else None
+    return posting if isinstance(posting, dict) and posting.get("url") else None
 
 
 async def run_tools_node(state: XBuddyState, config: RunnableConfig) -> dict[str, Any]:
@@ -46,4 +62,11 @@ async def run_tools_node(state: XBuddyState, config: RunnableConfig) -> dict[str
                 logger.warning("tool %s failed: %s", call["name"], exc)
                 content = _error("The tool could not run with those arguments.")
         results.append(ToolMessage(content=content, tool_call_id=call["id"], name=call["name"]))
-    return {"tool_scratch": [*scratch, *results]}
+
+    updates: dict[str, Any] = {"tool_scratch": [*scratch, *results]}
+    postings = [p for p in (_posting(r) for r in results) if p]
+    if postings:
+        updates["fetched_postings"] = remember_postings(
+            list(state.get("fetched_postings") or []), postings
+        )
+    return updates

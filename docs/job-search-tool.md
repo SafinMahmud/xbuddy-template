@@ -43,6 +43,30 @@ and `/stream` only ever contain what the user said and what JobBuddy answered.
 
 Try it: get to the Skill Gap section and say "I don't have any postings, can you find some?"
 
+## Reading a posting the user picked
+
+After a search, the user can pick results ("use number 2", a company name, or one
+of the links). The model calls `read_job_posting` with the link and JobBuddy reads
+the posting itself, so nobody has to copy and paste a job JobBuddy already found.
+
+| Link | What happens |
+| --- | --- |
+| Greenhouse, Lever or Ashby job in job-tracker | full description from job-tracker's `jobs` table |
+| Workday job in job-tracker | job-tracker stores no Workday descriptions, so the text comes from Workday's job detail endpoint |
+| Company page job-tracker never saw (Bell, for example) | not fetched: "I can only read jobs from my own search. Please paste the posting text." |
+| LinkedIn, Indeed, Glassdoor, ZipRecruiter | refused without a request: those sites block automated reading |
+
+Only links already in job-tracker are fetched, and a Workday host is rebuilt from
+a strict pattern, so a pasted link can never make the server call an arbitrary
+address. The posting text (up to 6,000 characters) is kept in `fetched_postings`
+(the last three), shown to the Skill Gap reply on every later turn, and given to
+extraction as a supplied posting. So requirements from a picked job are quoted
+from its real text, exactly like a pasted one. These are public job ads, not
+personal data.
+
+The Skill Gap prompt no longer asks for a link: a user either pastes the posting
+text or picks from the search.
+
 ## What happens when it fails
 
 | Failure | Behaviour |
@@ -89,4 +113,5 @@ set a wrong `JOB_TRACKER_SUPABASE_KEY`, ask for openings again, and share that t
 
 ## Tests
 
-`uv run pytest tests/xbuddy/test_job_search.py -q` (no network, no keys needed).
+`uv run pytest tests/xbuddy/test_job_search.py tests/xbuddy/test_job_posting.py -q`
+(no network, no keys needed).

@@ -17,6 +17,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 from .enums import SectionID
+from .job_posting import postings_block
 from .llm import get_chat_model
 from .models import (
     MAX_EVIDENCE_QUOTE_CHARS,
@@ -54,7 +55,8 @@ Return ONLY a JSON object matching this shape:
 {schema}
 
 Rules:
-- Use only what the user said or confirmed. Use null or [] when unknown.
+- Use only what the user said or confirmed, and the job postings they pasted or
+  chose. Use null or [] when unknown.
 - Location is a city or region only. Never include salary or contact details.
 - For requirements, every evidence item must name the job source label it came
   from and quote a short phrase from that posting.
@@ -140,6 +142,7 @@ async def extract_section_data(
     config: RunnableConfig,
     attempt: int = 1,
     max_attempts: int = 1,
+    postings: list[dict] | None = None,
 ) -> JobBuddyData:
     """Extract and merge structured data for a confirmed section. Raises on failure.
 
@@ -152,9 +155,16 @@ async def extract_section_data(
         f"{'USER' if isinstance(m, HumanMessage) else 'ASSISTANT'}: {m.content}"
         for m in conversation
     )
+    chosen = ""
+    if section_id == SectionID.SKILL_GAP and postings:
+        # Postings the user picked from a search were read by a tool, so their text
+        # is not in the conversation. They count as supplied postings.
+        chosen = postings_block(postings) + "\n\n"
     prompt = [
         SystemMessage(EXTRACTION_PROMPT.format(schema=_SCHEMAS[section_id])),
-        HumanMessage(f"CONFIRMED SUMMARY:\n{confirmed_summary}\n\nCONVERSATION:\n{transcript}"),
+        HumanMessage(
+            f"{chosen}CONFIRMED SUMMARY:\n{confirmed_summary}\n\nCONVERSATION:\n{transcript}"
+        ),
     ]
     is_retry = attempt > 1
     extract_config = {

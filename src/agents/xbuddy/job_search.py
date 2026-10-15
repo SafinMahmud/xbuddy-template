@@ -129,52 +129,65 @@ def _parse(rows: list, limit: int) -> list[JobPosting]:
     return postings[:limit]
 
 
-async def _get_once(client: httpx.AsyncClient, url: str, params: dict, headers: dict) -> list:
+SEARCH_SERVICE = "The job search service"
+
+
+async def _get_once(
+    client: httpx.AsyncClient, url: str, params: dict, headers: dict, service: str
+) -> list | dict:
+    """One GET. Every failure becomes a JobSearchError whose text is safe to show."""
     try:
         response = await client.get(url, params=params, headers=headers)
     except httpx.TimeoutException:
-        raise JobSearchError("The job search service took too long to answer.", True) from None
+        raise JobSearchError(f"{service} took too long to answer.", True) from None
     except httpx.HTTPError:
-        raise JobSearchError("The job search service could not be reached.", True) from None
+        raise JobSearchError(f"{service} could not be reached.", True) from None
 
     if response.status_code in (401, 403):
-        raise JobSearchError("The job search key was rejected.")
+        raise JobSearchError(f"{service} refused the request (HTTP {response.status_code}).")
     if response.status_code in RETRYABLE_STATUS:
-        raise JobSearchError(
-            f"The job search service is busy (HTTP {response.status_code}).", True
-        )
+        raise JobSearchError(f"{service} is busy (HTTP {response.status_code}).", True)
     if response.status_code >= 400:
-        raise JobSearchError(f"The job search request was refused (HTTP {response.status_code}).")
+        raise JobSearchError(f"{service} refused the request (HTTP {response.status_code}).")
     try:
         return response.json()
     except ValueError:
-        raise JobSearchError("The job search service sent an unreadable answer.", True) from None
+        raise JobSearchError(f"{service} sent an unreadable answer.", True) from None
 
 
-async def fetch_jobs(query: str, location: str = "", limit: int = MAX_RESULTS) -> list[JobPosting]:
-    """Query job-tracker's jobs table, retrying transient failures. Raises JobSearchError."""
-    if not is_configured():
-        raise JobSearchError("Job search is not set up on this server.")
-    words = search_words(query)
-    if not words:
-        raise JobSearchError("The search needs a job title or skill, for example 'backend'.")
-
-    base = settings.JOB_TRACKER_SUPABASE_URL.rstrip("/")
-    key = settings.JOB_TRACKER_SUPABASE_KEY.get_secret_value()
-    headers = {"apikey": key, "Accept": "application/json"}
-    params = build_params(words, location_term(location), limit)
-
+async def get_json(
+    url: str, params: dict, headers: dict, service: str = SEARCH_SERVICE
+) -> list | dict:
+    """GET with a timeout, retrying transient failures. Raises JobSearchError."""
     async with httpx.AsyncClient(timeout=TIMEOUT, transport=_TRANSPORT) as client:
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
-                rows = await _get_once(client, f"{base}/rest/v1/jobs", params, headers)
-                return _parse(rows, limit)
+                return await _get_once(client, url, params, headers, service)
             except JobSearchError as exc:
                 if not exc.retryable or attempt == MAX_ATTEMPTS:
                     raise
-                logger.warning("job search attempt %d failed: %s", attempt, exc)
+                logger.warning("%s attempt %d failed: %s", service, attempt, exc)
                 await asyncio.sleep(BACKOFF_SECONDS[attempt - 1])
-    raise JobSearchError("The job search did not finish.")  # unreachable, keeps types honest
+    raise JobSearchError(f"{service} did not answer.")  # unreachable, keeps types honest
+
+
+def tracker_request() -> tuple[str, dict]:
+    """The jobs table URL and headers. Raises JobSearchError when not configured."""
+    if not is_configured():
+        raise JobSearchError("Job search is not set up on this server.")
+    base = settings.JOB_TRACKER_SUPABASE_URL.rstrip("/")
+    key = settings.JOB_TRACKER_SUPABASE_KEY.get_secret_value()
+    return f"{base}/rest/v1/jobs", {"apikey": key, "Accept": "application/json"}
+
+
+async def fetch_jobs(query: str, location: str = "", limit: int = MAX_RESULTS) -> list[JobPosting]:
+    """Query job-tracker's jobs table. Raises JobSearchError."""
+    url, headers = tracker_request()
+    words = search_words(query)
+    if not words:
+        raise JobSearchError("The search needs a job title or skill, for example 'backend'.")
+    params = build_params(words, location_term(location), limit)
+    return _parse(await get_json(url, params, headers), limit)
 
 
 class SearchJobsInput(BaseModel):
@@ -221,6 +234,3 @@ async def search_jobs(query: str, location: str = "") -> str:
         }
     )
 
-
-TOOLS = [search_jobs]
-TOOLS_BY_NAME = {t.name: t for t in TOOLS}

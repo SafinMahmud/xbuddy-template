@@ -395,7 +395,7 @@ async def test_a_tool_request_is_parked_in_scratch_and_is_not_a_reply(monkeypatc
 
     result = await generate_reply_node(skill_gap_state(messages=[user]), CONFIG)
 
-    assert model.bound == [["search_jobs"]]
+    assert model.bound == [["search_jobs", "read_job_posting"]]
     assert "JOB SEARCH TOOL" in model.prompts[0][0].content
     assert set(result) == {"tool_scratch"}  # no message, no short memory change
     assert result["tool_scratch"][0].tool_calls[0]["name"] == "search_jobs"

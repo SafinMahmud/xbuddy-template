@@ -80,6 +80,7 @@ async def _extract(
             config,
             attempt=section.extraction_attempts + 1,
             max_attempts=MAX_EXTRACTION_ATTEMPTS,
+            postings=list(state.get("fetched_postings") or []),
         )
         unverified = unverified_fields(sid, user_data)
     except Exception as exc:  # noqa: BLE001 - extraction must not block the conversation

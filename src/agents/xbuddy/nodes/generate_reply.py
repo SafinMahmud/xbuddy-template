@@ -22,9 +22,10 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.runnables import RunnableConfig
 
 from ..enums import SectionID
-from ..job_search import TOOLS
+from ..job_posting import postings_block
 from ..llm import get_chat_model
 from ..models import XBuddyState
+from ..tool_registry import TOOLS
 from ..tools import build_context_packet
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ TOOL_LIMIT_REPLY = (
 TOOL_SECTIONS = frozenset(
     {SectionID.TARGET_ROLE, SectionID.SKILL_GAP, SectionID.APPLICATION_STRATEGY}
 )
-JOB_SEARCH_RULES = """JOB SEARCH TOOL
+JOB_SEARCH_RULES = """JOB SEARCH TOOLS
 - search_jobs looks up recent job openings from company career boards. It only
   covers software roles in Ontario and remote Canada. Call it only when the user
   asks to see real openings, or says they have no job posting to paste. If they
@@ -53,10 +54,17 @@ JOB_SEARCH_RULES = """JOB SEARCH TOOL
   the link, then say the listings come from company career boards.
 - Use only what the tool returned. Never invent, complete, or reword a posting, and
   never mention salary.
-- In the Skill Gap section the results are leads only: ask the user to open the ones
-  they like and paste the full posting text. The gap analysis needs the real text.
-- If the tool returns an error or no results, say so in one plain sentence and
-  continue the section (for example, ask the user to paste a posting instead).
+- After showing results in the Skill Gap section, ask which ones to use. The user
+  can answer with numbers, names or links.
+- read_job_posting reads the full text of a posting. Call it with the exact link
+  from the search results when the user picks a result, or with a link the user
+  pastes. Call it once per chosen posting.
+- When it returns a posting, use its text as the user's posting: name it by its
+  label and quote short phrases from it for the requirements. Never say you read
+  a posting you did not get back from the tool.
+- If a tool returns an error, no results, or a posting it cannot read, give its
+  message in one plain sentence and continue the section (for example, ask the
+  user to paste the posting text instead).
 """
 
 
@@ -100,6 +108,10 @@ async def generate_reply_node(state: XBuddyState, config: RunnableConfig) -> dic
             "If the user wants to change an earlier answer, acknowledge it; the roadmap "
             "will be regenerated once they confirm the change.\n\n" + state["roadmap"]
         )
+
+    postings = state.get("fetched_postings") or []
+    if postings and state["current_section"] == SectionID.SKILL_GAP:
+        system_prompt += "\n\n---\n\n" + postings_block(postings)
 
     try:
         # Getting the model is inside the try: a missing key must end in the

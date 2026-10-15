@@ -183,6 +183,9 @@ class XBuddyState(MessagesState, total=False):
     # Tool calls and tool results of the turn in progress. Kept out of `messages`
     # (the transcript the user sees) and emptied when the reply is written.
     tool_scratch: list[BaseMessage]
+    # Postings the user picked from a search, read by read_job_posting. Used by the
+    # Skill Gap reply and extraction like pasted postings. Public job ads only.
+    fetched_postings: list[dict]
 
 def default_state() -> dict[str, Any]:
     """Fresh defaults for a brand-new thread (identity is set by initialize_node)."""
@@ -202,6 +205,7 @@ def default_state() -> dict[str, Any]:
         "roadmap": None,
         "should_generate_final_output": False,
         "tool_scratch": [],
+        "fetched_postings": [],
     }
 
 
