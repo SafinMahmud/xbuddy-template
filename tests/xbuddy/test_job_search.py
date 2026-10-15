@@ -6,6 +6,7 @@ httpx.MockTransport, and the chat model with a fake that can ask for a tool.
 
 import itertools
 import json
+import re
 
 import httpx
 import pytest
@@ -31,6 +32,7 @@ from agents.xbuddy.job_search import (
     build_params,
     fetch_jobs,
     location_term,
+    quoted,
     search_jobs,
     search_words,
 )
@@ -173,12 +175,60 @@ def test_model_text_cannot_change_the_shape_of_the_filter():
     words = search_words("backend),title.neq.x,(or")
     params = build_params(words, location_term("Toronto),(x"), 5)
     assert params["and"] == (
-        "(or(title.ilike.*backend*,company.ilike.*backend*),"
-        "or(title.ilike.*title*,company.ilike.*title*),"
-        "or(title.ilike.*neq*,company.ilike.*neq*),"
-        "or(title.ilike.*x*,company.ilike.*x*))"
+        '(or(title.ilike."*backend*",company.ilike."*backend*"),'
+        'or(title.ilike."*title*",company.ilike."*title*"),'
+        'or(title.ilike."*neq*",company.ilike."*neq*"),'
+        'or(title.ilike."*x*",company.ilike."*x*"))'
     )
     assert params["location"] == "ilike.*toronto*"
+
+
+def test_quoting_escapes_quotes_and_backslashes():
+    assert quoted('*c++*') == '"*c++*"'
+    assert quoted('a"b\\c') == '"a\\"b\\\\c"'
+
+
+# The only shapes a filter may ever take, whatever the model sends.
+SAFE_AND = re.compile(
+    r'\((?:or\(title\.ilike\."\*([a-z0-9+#]+)\*",company\.ilike\."\*\1\*"\),?){1,4}\)'
+)
+SAFE_LOCATION = re.compile(r"ilike\.\*[a-z ]+\*")
+HOSTILE = [
+    'backend", company.neq.x',  # break out of the quotes
+    "backend),or(title.neq.zzz",  # close the group and add a clause
+    "python\\\" developer",  # backslash before a quote
+    "dev\n&limit=1000&select=*",  # extra query parameters
+    "%2C%28or%29 %22",  # pre-encoded reserved characters
+    "' OR 1=1 --",  # SQL-style
+    "*",  # wildcard only
+    "c++ c# .net node.js",  # legitimate symbols
+    "développeur logiciel",  # accents
+    "a" * 500,  # very long
+]
+
+
+@pytest.mark.parametrize("hostile", HOSTILE)
+def test_hostile_text_only_ever_produces_the_safe_filter_shape(hostile):
+    params = build_params(search_words(hostile), location_term(hostile), 5)
+
+    assert set(params) <= {"select", "order", "limit", "and", "location"}
+    assert params["select"] == job_search.COLUMNS and params["limit"] == "5"
+    if "and" in params:
+        assert SAFE_AND.fullmatch(params["and"]), params["and"]
+    if "location" in params:
+        assert SAFE_LOCATION.fullmatch(params["location"]), params["location"]
+
+
+@pytest.mark.asyncio
+async def test_plus_and_hash_are_percent_encoded_on_the_wire(tracker):
+    requests = tracker(httpx.Response(200, json=TRACKER_OK))
+
+    await fetch_jobs("c++ c# developer", "Toronto")
+
+    raw_query = requests[0].url.query.decode()
+    assert "%2B%2B" in raw_query and "%23" in raw_query
+    assert "+" not in raw_query and "#" not in raw_query
+    assert requests[0].url.params["and"].count('"*') == 6  # every value quoted
 
 
 @pytest.mark.parametrize(
