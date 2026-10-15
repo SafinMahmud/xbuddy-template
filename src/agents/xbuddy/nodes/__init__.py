@@ -6,6 +6,7 @@ from .generate_reply import generate_reply_node
 from .generate_decision import generate_decision_node
 from .memory_updater import memory_updater_node
 from .implementation import implementation_node
+from .run_tools import run_tools_node
 
 __all__ = [
     "initialize_node",
@@ -14,4 +15,5 @@ __all__ = [
     "generate_decision_node",
     "memory_updater_node",
     "implementation_node",
+    "run_tools_node",
 ]

@@ -24,6 +24,19 @@ def route_after_memory_updater(state: XBuddyState) -> Literal["implementation", 
     return "router"
 
 
+def route_after_reply(state: XBuddyState) -> Literal["tools", "generate_decision"]:
+    """After generate_reply: run the requested tool, or move on to the decision.
+
+    generate_reply leaves an AI message with tool calls at the end of tool_scratch
+    when the model asked for a tool. When it wrote the final reply, the scratch is
+    empty.
+    """
+    scratch = state.get("tool_scratch") or []
+    if scratch and isinstance(scratch[-1], AIMessage) and scratch[-1].tool_calls:
+        return "tools"
+    return "generate_decision"
+
+
 def route_decision(state: XBuddyState) -> Literal["generate_reply"] | None:
     """Determine whether to generate a reply or end the turn.
 

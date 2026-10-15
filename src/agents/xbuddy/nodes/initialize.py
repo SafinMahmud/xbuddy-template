@@ -41,6 +41,9 @@ async def initialize_node(
 
     for key, default in default_state().items():
         updates[key] = state.get(key, default)
+    # Tool traffic belongs to one turn. If an earlier turn died between the tool
+    # call and the reply, its leftovers must not reach this turn's prompt.
+    updates["tool_scratch"] = []
 
     # Validate current_section.
     value = updates.get("current_section")
