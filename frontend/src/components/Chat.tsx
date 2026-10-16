@@ -68,7 +68,7 @@ export default function Chat({ messages, busy, loading, server, placeholder, onS
                 writes you an eight-week roadmap built only from what you told it.
               </p>
               <p className="first-question">
-                To start, what is your current or most recent job title?
+                To start, what&apos;s your current or most recent role, and what experience, skills, and education should I know about?
               </p>
             </div>
           ) : (

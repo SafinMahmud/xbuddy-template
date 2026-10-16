@@ -29,6 +29,6 @@ are all collected and the user has confirmed the summary.
         "skills",
         "education",
     ],
-    opening_question="To start, what is your current or most recent job title?",
+    opening_question="To start, what's your current or most recent role, and what experience, skills, and education should I know about?",
     next_section=SectionID.TARGET_ROLE,
 )
