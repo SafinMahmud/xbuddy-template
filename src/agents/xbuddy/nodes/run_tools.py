@@ -31,6 +31,18 @@ def _error(message: str) -> str:
     return json.dumps({"status": "error", "message": message})
 
 
+def _search_results(result: ToolMessage) -> list[dict] | None:
+    """The results of a successful search_jobs call, if this is one."""
+    if result.name != "search_jobs":
+        return None
+    try:
+        data = json.loads(result.content)
+    except (TypeError, ValueError):
+        return None
+    results = data.get("results") if data.get("status") == "ok" else None
+    return [r for r in results if isinstance(r, dict)] if isinstance(results, list) else None
+
+
 def _posting(result: ToolMessage) -> dict | None:
     """The posting inside a successful read_job_posting result, if there is one."""
     if result.name != "read_job_posting":
@@ -69,4 +81,7 @@ async def run_tools_node(state: XBuddyState, config: RunnableConfig) -> dict[str
         updates["fetched_postings"] = remember_postings(
             list(state.get("fetched_postings") or []), postings
         )
+    searches = [r for r in (_search_results(m) for m in results) if r]
+    if searches:
+        updates["last_search_results"] = searches[-1]
     return updates

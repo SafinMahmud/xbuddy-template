@@ -417,6 +417,9 @@ async def test_tools_node_answers_every_call_including_broken_ones(tracker):
     assert all(isinstance(m, ToolMessage) for m in answers)
     assert [m.tool_call_id for m in answers] == ["a", "b", "c"]
     assert [json.loads(m.content)["status"] for m in answers] == ["ok", "error", "error"]
+    # The successful search is kept, numbered, for a pick on the next turn.
+    kept = result["last_search_results"]
+    assert kept and kept == json.loads(answers[0].content)["results"]
 
 
 @pytest.mark.asyncio
@@ -440,7 +443,28 @@ async def test_reply_after_the_tool_uses_results_and_clears_scratch(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_the_model_cannot_search_forever(monkeypatch):
-    use_reply_model(monkeypatch, tool_request("call_9"))
+    """At the limit it must answer from what the tools already returned."""
+    model = use_reply_model(
+        monkeypatch, tool_request("call_9"), AIMessage("Here is what I found so far.")
+    )
+    scratch = []
+    for i in range(MAX_TOOL_ROUNDS):
+        scratch += [tool_request(f"c{i}"),
+                    ToolMessage(content='{"status": "ok", "marker": "R%d"}' % i, tool_call_id=f"c{i}")]
+
+    result = await generate_reply_node(
+        skill_gap_state(messages=[HumanMessage("more")], tool_scratch=scratch), CONFIG
+    )
+
+    assert result["messages"][0].content == "Here is what I found so far."
+    assert result["tool_scratch"] == []
+    final_prompt = model.prompts[-1][0].content
+    assert "R0" in final_prompt and "TOOL RESULTS FROM THIS TURN" in final_prompt
+
+
+@pytest.mark.asyncio
+async def test_tool_limit_with_an_empty_final_answer_says_so(monkeypatch):
+    use_reply_model(monkeypatch, tool_request("call_9"), AIMessage(""))
     scratch = []
     for i in range(MAX_TOOL_ROUNDS):
         scratch += [tool_request(f"c{i}"), ToolMessage(content="{}", tool_call_id=f"c{i}")]
@@ -450,7 +474,21 @@ async def test_the_model_cannot_search_forever(monkeypatch):
     )
 
     assert result["messages"][0].content == TOOL_LIMIT_REPLY
-    assert result["tool_scratch"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_pick_by_number_sees_the_last_search_results(monkeypatch):
+    """Regression: 'use 2 and 4' made the model search again to find the links."""
+    model = use_reply_model(monkeypatch, AIMessage("Reading those two now."))
+    results = [{"title": f"Job {i}", "company": f"Co {i}", "url": f"https://x.test/{i}"}
+               for i in range(1, 5)]
+    await generate_reply_node(
+        skill_gap_state(messages=[HumanMessage("use 2 and 4")], last_search_results=results),
+        CONFIG,
+    )
+    prompt = model.prompts[0][0].content
+    assert "LAST SEARCH RESULTS" in prompt
+    assert "2. Job 2 - Co 2" in prompt and "https://x.test/4" in prompt
 
 
 @pytest.mark.asyncio

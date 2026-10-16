@@ -186,6 +186,9 @@ class XBuddyState(MessagesState, total=False):
     # Postings the user picked from a search, read by read_job_posting. Used by the
     # Skill Gap reply and extraction like pasted postings. Public job ads only.
     fetched_postings: list[dict]
+    # The latest search_jobs results, numbered as the user saw them, so "use 2
+    # and 4" on the next turn maps to links without searching again.
+    last_search_results: list[dict]
 
 def default_state() -> dict[str, Any]:
     """Fresh defaults for a brand-new thread (identity is set by initialize_node)."""
@@ -206,6 +209,7 @@ def default_state() -> dict[str, Any]:
         "should_generate_final_output": False,
         "tool_scratch": [],
         "fetched_postings": [],
+        "last_search_results": [],
     }
 
 

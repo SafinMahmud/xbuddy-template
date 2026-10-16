@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 SHORT_MEMORY_LIMIT = 20  # messages kept per section
 FALLBACK_REPLY = "Sorry, I had trouble responding just now. Could you say that again?"
 
-MAX_TOOL_ROUNDS = 2  # searches the model may run in one turn before it must answer
+MAX_TOOL_ROUNDS = 3  # tool steps the model may take in one turn before it must answer
 TOOL_LIMIT_REPLY = (
     "I couldn't finish the job search just now. You can paste a posting you already "
     "have, or ask me to search again."
@@ -64,7 +64,10 @@ JOB_SEARCH_RULES = """JOB SEARCH TOOLS
   can answer with numbers, names or links.
 - read_job_posting reads the full text of a posting. Call it with the exact link
   from the search results when the user picks a result, or with a link the user
-  pastes. Call it once per chosen posting.
+  pastes. When the user picks several, call it for all of them in the same step
+  (several calls at once), not one per step.
+- When the user picks from LAST SEARCH RESULTS below ("use 2 and 4"), use those
+  links directly. Do not search again.
 - When it returns a posting, use its text as the user's posting: name it by its
   label and quote short phrases from it for the requirements. Never say you read
   a posting you did not get back from the tool.
@@ -106,6 +109,18 @@ def _results_block(scratch: list) -> str:
     return "\n\n---\n\nTOOL RESULTS FROM THIS TURN (use them in your reply):\n" + "\n\n".join(
         str(r) for r in results
     )
+
+
+def _search_block(results: list[dict]) -> str:
+    """The latest search results, numbered as shown, so a pick needs no new search."""
+    if not results:
+        return ""
+    lines = [
+        f"{i}. {r.get('title')} - {r.get('company') or 'Unknown company'}"
+        f" ({r.get('location') or 'location not given'}): {r.get('url')}"
+        for i, r in enumerate(results, 1)
+    ]
+    return "\n\n---\n\nLAST SEARCH RESULTS (numbered as the user saw them):\n" + "\n".join(lines)
 
 
 EMPTY_REPLY_NUDGE = "\n\n---\n\nWrite your reply to the user now, in plain text."
@@ -157,8 +172,13 @@ async def generate_reply_node(state: XBuddyState, config: RunnableConfig) -> dic
             response = await model.ainvoke([SystemMessage(system_prompt), *recent], config)
         else:
             try:
+                tool_prompt = (
+                    system_prompt
+                    + TOOL_RULES_BLOCK
+                    + _search_block(list(state.get("last_search_results") or []))
+                )
                 response = await tool_model.ainvoke(
-                    [SystemMessage(system_prompt + TOOL_RULES_BLOCK), *recent, *scratch], config
+                    [SystemMessage(tool_prompt), *recent, *scratch], config
                 )
             except Exception as exc:  # noqa: BLE001
                 # Tool calling must never cost the user their reply (for example a
@@ -174,19 +194,20 @@ async def generate_reply_node(state: XBuddyState, config: RunnableConfig) -> dic
             # Not a reply yet: hand the request to the tools node, then come back here.
             return {"tool_scratch": [*scratch, response]}
         content = _text(response.content)
-        if tool_calls and not content.strip():
-            content = TOOL_LIMIT_REPLY  # still asking for tools after the limit
-        elif not content.strip():
-            # Some models (gpt-oss after tool results, for one) occasionally return
-            # an empty message. An empty reply reaches the user as a cut-off turn,
-            # so ask once more without tools, with this turn's results as text.
-            logger.warning("empty reply from the model, retrying once without tools")
+        if not content.strip():
+            # Either the model still wants tools after the limit, or it returned an
+            # empty message (gpt-oss after tool results does this now and then).
+            # Both used to end the turn badly, so answer once more without tools,
+            # with whatever this turn's tools already returned, as text.
+            reason = "tool limit reached" if tool_calls else "empty reply"
+            logger.warning("%s, answering once more without tools", reason)
             retry = await model.ainvoke(
                 [SystemMessage(system_prompt + _results_block(scratch) + EMPTY_REPLY_NUDGE),
                  *recent],
                 config,
             )
-            content = _text(retry.content).strip() or FALLBACK_REPLY
+            fallback = TOOL_LIMIT_REPLY if tool_calls else FALLBACK_REPLY
+            content = _text(retry.content).strip() or fallback
         reply = AIMessage(content=content, id=getattr(response, "id", None))
         error_updates: dict[str, Any] = {}
     except Exception as exc:  # network, rate limit, provider errors
