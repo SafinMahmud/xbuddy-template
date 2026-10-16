@@ -29,6 +29,6 @@ are all collected and the user has confirmed the summary.
         "skills",
         "education",
     ],
-    opening_question="To start, what's your current or most recent role, and what experience, skills, and education should I know about?",
+    opening_question="To start, tell me a little about your background: your current or most recent role, how long you've worked in the field, your main skills, and your education. A few lines is plenty.",
     next_section=SectionID.TARGET_ROLE,
 )

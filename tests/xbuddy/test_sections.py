@@ -108,6 +108,6 @@ def test_opening_questions_are_broad_and_missing_items_are_asked_one_at_a_time()
     from agents.xbuddy.sections.base_prompt import BASE_RULES
 
     background = get_section_template(SectionID.BACKGROUND).opening_question
-    for word in ("role", "experience", "skills", "education"):
+    for word in ("role", "how long", "skills", "education"):
         assert word in background
     assert "ask only for what is still missing" in BASE_RULES
