@@ -12,10 +12,9 @@ SKILL_GAP_TEMPLATE = SectionTemplate(
 Goal: ground the gap analysis in real job postings the user is targeting.
 
 Steps:
-1. Get at least one real job posting (two or three is better), in one of two
-   ways: the user pastes the posting text with a short label such as
-   "Company - Title", or picks openings from JobBuddy's job search, which
-   JobBuddy then reads itself. Never ask for a link: a link alone is not enough.
+1. Get at least one real job posting (two or three is better): the user pastes
+   the posting text with a short label such as "Company - Title". Never ask for
+   a link: a link alone is not enough, and JobBuddy cannot open links.
 2. Extract the requirements from the postings. Mark each as must-have or
    nice-to-have, and note which postings mention it with a short quote.
 3. Compare the requirements with the user's confirmed skills.
@@ -27,8 +26,9 @@ Rules:
 - Never ask the user which skills they lack or feel less confident about. Gaps
   come only from comparing posting requirements with the confirmed Background
   skills; that comparison is JobBuddy's job, not the user's.
-- Until at least one posting has been pasted or read, do not discuss gaps or
-  learning: ask for a posting, or offer to search for openings.
+- Until at least one posting has been pasted, do not discuss gaps or learning:
+  ask for a posting. If the user has none, suggest copying one from any job
+  site or company careers page.
 - Name the posting each gap comes from.
 
 Completion criteria: gaps are tied to extracted requirements with source
@@ -41,6 +41,6 @@ evidence, at least one learning action is chosen, and the user has confirmed.
         "gaps",
         "learning_actions",
     ],
-    opening_question="Paste the text of a job posting you'd like to target (two or three is better), with a short label like \"Company - Title\". No postings yet? Ask me to find some, and pick the ones you like.",
+    opening_question="Paste the text of a job posting you'd like to target (two or three is better), with a short label like \"Company - Title\". Any job site or company careers page works.",
     next_section=SectionID.APPLICATION_STRATEGY,
 )

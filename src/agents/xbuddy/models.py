@@ -180,15 +180,6 @@ class XBuddyState(MessagesState, total=False):
     last_error: str | None
     roadmap: str | None                 # renamed from final_output
     should_generate_final_output: bool
-    # Tool calls and tool results of the turn in progress. Kept out of `messages`
-    # (the transcript the user sees) and emptied when the reply is written.
-    tool_scratch: list[BaseMessage]
-    # Postings the user picked from a search, read by read_job_posting. Used by the
-    # Skill Gap reply and extraction like pasted postings. Public job ads only.
-    fetched_postings: list[dict]
-    # The latest search_jobs results, numbered as the user saw them, so "use 2
-    # and 4" on the next turn maps to links without searching again.
-    last_search_results: list[dict]
 
 def default_state() -> dict[str, Any]:
     """Fresh defaults for a brand-new thread (identity is set by initialize_node)."""
@@ -207,9 +198,6 @@ def default_state() -> dict[str, Any]:
         "last_error": None,
         "roadmap": None,
         "should_generate_final_output": False,
-        "tool_scratch": [],
-        "fetched_postings": [],
-        "last_search_results": [],
     }
 
 

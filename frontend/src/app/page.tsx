@@ -21,8 +21,8 @@ import type { ChatMessage, Progress, SavedThread } from "@/lib/types";
 const PLACEHOLDERS: Record<string, string> = {
   background: "Your current role, years of experience, main skills…",
   target_role: "The titles you want, where, and what matters most to you…",
-  skill_gap: "Paste a job posting, or ask JobBuddy to find some openings…",
-  application_strategy: "How you plan to apply, or ask to see current openings…",
+  skill_gap: "Paste a job posting with a short label, like \"Company - Title\"…",
+  application_strategy: "How you plan to apply: resume, channels, networking, weekly targets…",
   interview_prep: "The interviews you expect and what worries you…",
 };
 const DEFAULT_PLACEHOLDER = "Type your answer. Shift+Enter adds a new line.";

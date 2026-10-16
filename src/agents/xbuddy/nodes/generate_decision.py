@@ -10,7 +10,7 @@ code and never trusted blindly:
     A missing or partial list fails closed (stay), so the model cannot advance a
     section whose required fields were never collected.
   - "modify:<id>" must name a real section other than the current one.
-  - Skill Gap cannot advance until there is a real posting (read or pasted).
+  - Skill Gap cannot advance until the user has pasted a real posting.
   - A "next" that would finish the conversation (no unfinished section left)
     is refused while the reply is still asking the user a question, so the
     roadmap never arrives before they answer.
@@ -31,7 +31,6 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
 from ..enums import RouterDirective, SectionID
-from ..job_posting import section_has_posting
 from ..llm import get_chat_model
 from ..models import ChatAgentDecision, ChatAgentOutput, XBuddyState
 from ..prompts import get_next_unfinished_section, get_section_template
@@ -93,6 +92,22 @@ def parse_decision(raw: str) -> ChatAgentDecision:
         return ChatAgentDecision.model_validate(data)
     except ValidationError as exc:
         raise ValueError(f"invalid decision fields: {exc.errors()[0]['msg']}") from None
+
+
+PASTED_POSTING_MIN_CHARS = 300  # a user message this long in Skill Gap counts as a posting
+
+
+def section_has_posting(state: XBuddyState) -> bool:
+    """True once the user has pasted a posting in this section.
+
+    A heuristic: a user message in the section's memory at least
+    PASTED_POSTING_MIN_CHARS long. It is the same text extraction reads, so a
+    section can't be confirmed with nothing for extraction to quote.
+    """
+    return any(
+        isinstance(m, HumanMessage) and len(str(m.content)) >= PASTED_POSTING_MIN_CHARS
+        for m in state.get("short_memory") or []
+    )
 
 
 SECTION_HISTORY_LIMIT = 12  # section messages shown to the decision model
