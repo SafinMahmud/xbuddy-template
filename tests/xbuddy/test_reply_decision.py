@@ -278,3 +278,42 @@ async def test_decision_without_reply_skips_model(monkeypatch):
     result = await generate_decision_node(base_state(messages=[HumanMessage("hi")]), CONFIG)
     assert result["router_directive"] == "stay"
     assert "error_count" not in result
+
+
+# --- the decision sees the whole section, not only the last exchange -------------------------
+
+def test_field_names_match_loosely():
+    decision = parse_decision(json.dumps({
+        "router_directive": "next", "is_satisfied": True, "section_summary": "ok",
+        "covered_fields": ["Current role", "role-history", "Years experience", "skills",
+                           "EDUCATION"]}))
+    assert missing_required_fields(decision, SectionID.BACKGROUND) == []
+
+
+@pytest.mark.asyncio
+async def test_decision_prompt_holds_the_draft_and_earlier_section_messages(monkeypatch):
+    """Regression: with only the last exchange, the model could not list fields the user
+    gave earlier, 'next' was downgraded, and the section stayed stuck while the chat moved on."""
+    from agents.xbuddy.models import SectionContent
+
+    raw = json.dumps({"router_directive": "stay", "is_satisfied": None})
+    model = use_model(monkeypatch, decision_mod, RecordingModel(responses=[raw]))
+    reply = AIMessage("Thanks! What role are you aiming for next?")
+    memory = [
+        AIMessage("To start, what is your current or most recent job title?"),
+        HumanMessage("Backend developer, before that QA analyst, MSc in CS"),
+        AIMessage("Summary: backend dev, QA before, MSc CS. Right?"),
+        HumanMessage("Yes"),
+        reply,
+    ]
+    state = base_state(messages=list(memory), short_memory=list(memory))
+    bg = state["section_states"]["background"]
+    state["section_states"]["background"] = bg.model_copy(update={
+        "content": SectionContent(content={}, plain_text="Backend developer; 3 years; Python")})
+
+    await generate_decision_node(state, CONFIG)
+
+    transcript = model.calls[0][0][1].content
+    assert "Backend developer; 3 years; Python" in transcript  # saved draft
+    assert "before that QA analyst" in transcript  # an earlier turn of the section
+    assert transcript.count(reply.content) == 1  # the reply appears once, at the end

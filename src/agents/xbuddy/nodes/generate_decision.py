@@ -11,6 +11,10 @@ code and never trusted blindly:
     section whose required fields were never collected.
   - "modify:<id>" must name a real section other than the current one.
   - Skill Gap cannot advance until there is a real posting (read or pasted).
+The decision model sees the whole section (its saved draft and recent
+messages), not only the last exchange, so covered_fields reflects everything
+the user said in the section. Checklist names are compared loosely
+("Current role" matches current_role).
 The call is tagged "internal_decision" so /stream never shows it to the user.
 """
 
@@ -49,6 +53,8 @@ Rules:
 - "next" ONLY if the assistant had presented a summary of the current section,
   the user explicitly confirmed it (for example "yes", "looks good"), and every
   checklist item is in covered_fields.
+- covered_fields counts everything the user provided anywhere in this section's
+  conversation or the saved draft, not only in the latest message.
 - "modify:<section_id>" if the user wants to change an answer from an EARLIER
   section. Valid section ids: {section_ids}.
 - Otherwise "stay" (still collecting, user corrected the summary, off topic).
@@ -86,10 +92,41 @@ def parse_decision(raw: str) -> ChatAgentDecision:
         raise ValueError(f"invalid decision fields: {exc.errors()[0]['msg']}") from None
 
 
+SECTION_HISTORY_LIMIT = 12  # section messages shown to the decision model
+
+
+def _field_key(name: str) -> str:
+    """'Current role', 'current-role' and 'current_role' all become 'current_role'."""
+    return "_".join(re.findall(r"[a-z0-9]+", str(name).lower()))
+
+
 def missing_required_fields(decision: ChatAgentDecision, current: SectionID) -> list[str]:
     """Checklist items of the current section the decision does not report as covered."""
-    covered = {f.strip().lower() for f in decision.covered_fields}
-    return [f for f in get_section_template(current).required_fields if f.lower() not in covered]
+    covered = {_field_key(f) for f in decision.covered_fields}
+    return [
+        f for f in get_section_template(current).required_fields if _field_key(f) not in covered
+    ]
+
+
+def _speaker(message) -> str:
+    return "USER" if isinstance(message, HumanMessage) else "ASSISTANT"
+
+
+def build_transcript(state: XBuddyState, reply: AIMessage) -> str:
+    """The section so far for the decision model: saved draft, then recent messages."""
+    current: SectionID = state["current_section"]
+    section = (state.get("section_states") or {}).get(current.value)
+    draft = getattr(getattr(section, "content", None), "plain_text", None) or "(none)"
+    history = [
+        m for m in (state.get("short_memory") or state.get("messages") or [])
+        if isinstance(m, (HumanMessage, AIMessage)) and m is not reply
+    ][-SECTION_HISTORY_LIMIT:]
+    lines = [f"{_speaker(m)}: {m.content}" for m in history] or ["(none)"]
+    return (
+        f"SAVED DRAFT OF THIS SECTION:\n{draft}\n\n"
+        "SECTION CONVERSATION SO FAR:\n" + "\n\n".join(lines) + "\n\n"
+        f"ASSISTANT REPLY:\n{reply.content}"
+    )
 
 
 def apply_guardrails(decision: ChatAgentDecision, current: SectionID) -> ChatAgentDecision:
@@ -127,13 +164,7 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
             section_name=template.name,
             required_fields=", ".join(template.required_fields),
         )
-        prior_ai = next((m for m in reversed(messages[:-1]) if isinstance(m, AIMessage)), None)
-        user = next((m for m in reversed(messages) if isinstance(m, HumanMessage)), None)
-        transcript = (
-            f"PREVIOUS ASSISTANT MESSAGE:\n{prior_ai.content if prior_ai else '(none)'}\n\n"
-            f"USER MESSAGE:\n{user.content if user else '(none)'}\n\n"
-            f"ASSISTANT REPLY:\n{reply.content}"
-        )
+        transcript = build_transcript(state, reply)
         decision_config = {**config, "tags": [*(config or {}).get("tags", []), DECISION_TAG]}
         try:
             response = await get_chat_model(config).ainvoke(
