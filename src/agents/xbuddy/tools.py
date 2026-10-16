@@ -84,7 +84,8 @@ def build_context_packet(
         nxt = get_section_template(template.next_section)
         parts.append(
             f"WHEN THE USER CONFIRMS THIS SECTION: the next section is {nxt.name}. "
-            f"Ask its opening question: {nxt.opening_question}"
+            f"Ask its opening question in your own words, with no heading or label "
+            f"in front of it: {nxt.opening_question}"
         )
     else:
         parts.append(

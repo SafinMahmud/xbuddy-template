@@ -28,6 +28,7 @@ const PLACEHOLDERS: Record<string, string> = {
 const DEFAULT_PLACEHOLDER = "Type your answer. Shift+Enter adds a new line.";
 const FAILED_TURN = "That message did not go through. Check your connection and send it again.";
 const CUT_OFF = "The reply stopped before it finished. Send your message again.";
+const SERVER_ERROR = "JobBuddy hit an error on the server. Send your message again.";
 
 let nextId = 0;
 const newId = (prefix: string) => `${prefix}${Date.now()}-${nextId++}`;
@@ -141,6 +142,7 @@ export default function Home() {
     const replyId = newId("a");
     let openId: string | null = replyId; // the reply bubble currently receiving tokens
     let received = false;
+    let serverError = false;
     const startedIn = threadRef.current;
 
     setBusy(true);
@@ -196,13 +198,17 @@ export default function Home() {
           }
         } else if (event.type === "section" && event.content) {
           setProgress(event.content as Progress);
+        } else if (event.type === "error") {
+          serverError = true; // the API failed mid-turn; said below instead of "cut off"
         }
       }
 
       if (openId) {
         const id = openId;
         patch(id, (m) =>
-          m.content ? { ...m, open: false } : { ...m, open: false, failed: true, content: CUT_OFF },
+          m.content
+            ? { ...m, open: false }
+            : { ...m, open: false, failed: true, content: serverError ? SERVER_ERROR : CUT_OFF },
         );
       }
     } catch {

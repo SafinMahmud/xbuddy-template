@@ -18,7 +18,13 @@ Reference: https://github.com/Victoria824/FounderBuddy/blob/main/src/agents/foun
 import logging
 from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.runnables import RunnableConfig
 
 from ..enums import SectionID
@@ -77,6 +83,32 @@ TOOL_DOWN_BLOCK = (
     "\n\n---\n\nJob search is unavailable right now. If the user asked for job "
     "openings, say so in one sentence and continue with the current section."
 )
+
+
+def _text(content: Any) -> str:
+    """Message content as plain text (some providers return a list of blocks)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            b if isinstance(b, str) else str(b.get("text", ""))
+            for b in content
+            if isinstance(b, (str, dict)) and (isinstance(b, str) or b.get("type") == "text")
+        )
+    return str(content or "")
+
+
+def _results_block(scratch: list) -> str:
+    """This turn's tool results as plain text, for a retry without tools."""
+    results = [m.content for m in scratch if isinstance(m, ToolMessage)]
+    if not results:
+        return ""
+    return "\n\n---\n\nTOOL RESULTS FROM THIS TURN (use them in your reply):\n" + "\n\n".join(
+        str(r) for r in results
+    )
+
+
+EMPTY_REPLY_NUDGE = "\n\n---\n\nWrite your reply to the user now, in plain text."
 
 
 def _tools_allowed(state: XBuddyState) -> bool:
@@ -141,9 +173,20 @@ async def generate_reply_node(state: XBuddyState, config: RunnableConfig) -> dic
         if tool_model is not None and tool_calls and rounds < MAX_TOOL_ROUNDS:
             # Not a reply yet: hand the request to the tools node, then come back here.
             return {"tool_scratch": [*scratch, response]}
-        content = response.content
-        if tool_calls and not content:
+        content = _text(response.content)
+        if tool_calls and not content.strip():
             content = TOOL_LIMIT_REPLY  # still asking for tools after the limit
+        elif not content.strip():
+            # Some models (gpt-oss after tool results, for one) occasionally return
+            # an empty message. An empty reply reaches the user as a cut-off turn,
+            # so ask once more without tools, with this turn's results as text.
+            logger.warning("empty reply from the model, retrying once without tools")
+            retry = await model.ainvoke(
+                [SystemMessage(system_prompt + _results_block(scratch) + EMPTY_REPLY_NUDGE),
+                 *recent],
+                config,
+            )
+            content = _text(retry.content).strip() or FALLBACK_REPLY
         reply = AIMessage(content=content, id=getattr(response, "id", None))
         error_updates: dict[str, Any] = {}
     except Exception as exc:  # network, rate limit, provider errors

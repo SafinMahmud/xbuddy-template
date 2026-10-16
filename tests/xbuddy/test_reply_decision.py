@@ -317,3 +317,22 @@ async def test_decision_prompt_holds_the_draft_and_earlier_section_messages(monk
     assert "Backend developer; 3 years; Python" in transcript  # saved draft
     assert "before that QA analyst" in transcript  # an earlier turn of the section
     assert transcript.count(reply.content) == 1  # the reply appears once, at the end
+
+
+@pytest.mark.asyncio
+async def test_empty_model_reply_is_retried_not_sent(monkeypatch):
+    """Regression: an empty model message reached the browser as a cut-off turn."""
+    model = use_model(monkeypatch, reply_mod, RecordingModel(responses=["", "What's your current role?"]))
+    state = base_state(messages=[HumanMessage("hi")])
+
+    result = await generate_reply_node(state, CONFIG)
+
+    assert result["messages"][0].content == "What's your current role?"
+    assert len(model.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_empty_reply_twice_falls_back(monkeypatch):
+    use_model(monkeypatch, reply_mod, FakeListChatModel(responses=["", "  "]))
+    result = await generate_reply_node(base_state(messages=[HumanMessage("hi")]), CONFIG)
+    assert result["messages"][0].content == FALLBACK_REPLY
