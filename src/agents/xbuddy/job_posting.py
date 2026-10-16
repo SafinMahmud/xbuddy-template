@@ -24,6 +24,7 @@ import logging
 import re
 from urllib.parse import urlsplit
 
+from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
@@ -191,3 +192,22 @@ def postings_block(postings: list[dict]) -> str:
     for posting in postings:
         parts.append(f"=== {posting['label']}\n{posting['url']}\n{posting['text']}")
     return "\n\n".join(parts)
+
+
+PASTED_POSTING_MIN_CHARS = 300  # a user message this long in Skill Gap counts as a posting
+
+
+def section_has_posting(state: dict) -> bool:
+    """True once the Skill Gap section has a real posting to work from.
+
+    Either JobBuddy read one (fetched_postings), or the user pasted one: a user
+    message in the section's memory at least PASTED_POSTING_MIN_CHARS long. A
+    heuristic, but it is the same text extraction reads, so a section can't be
+    confirmed with nothing for extraction to quote.
+    """
+    if state.get("fetched_postings"):
+        return True
+    return any(
+        isinstance(m, HumanMessage) and len(str(m.content)) >= PASTED_POSTING_MIN_CHARS
+        for m in state.get("short_memory") or []
+    )

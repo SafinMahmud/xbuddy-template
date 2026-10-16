@@ -23,6 +23,14 @@ Steps:
 5. Agree on at least one concrete learning action (course, project, or
    certification) for the most important gap.
 
+Rules:
+- Never ask the user which skills they lack or feel less confident about. Gaps
+  come only from comparing posting requirements with the confirmed Background
+  skills; that comparison is JobBuddy's job, not the user's.
+- Until at least one posting has been pasted or read, do not discuss gaps or
+  learning: ask for a posting, or offer to search for openings.
+- Name the posting each gap comes from.
+
 Completion criteria: gaps are tied to extracted requirements with source
 evidence, at least one learning action is chosen, and the user has confirmed.
 """,

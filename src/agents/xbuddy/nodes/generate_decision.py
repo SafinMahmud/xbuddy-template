@@ -10,6 +10,7 @@ code and never trusted blindly:
     A missing or partial list fails closed (stay), so the model cannot advance a
     section whose required fields were never collected.
   - "modify:<id>" must name a real section other than the current one.
+  - Skill Gap cannot advance until there is a real posting (read or pasted).
 The call is tagged "internal_decision" so /stream never shows it to the user.
 """
 
@@ -23,6 +24,7 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
 from ..enums import RouterDirective, SectionID
+from ..job_posting import section_has_posting
 from ..llm import get_chat_model
 from ..models import ChatAgentDecision, ChatAgentOutput, XBuddyState
 from ..prompts import get_section_template
@@ -139,6 +141,17 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
             )
             proposed = parse_decision(str(response.content))
             decision = apply_guardrails(proposed, current)
+            if (
+                current == SectionID.SKILL_GAP
+                and decision.router_directive == RouterDirective.NEXT.value
+                and not section_has_posting(state)
+            ):
+                # The model may believe the section is done after a chat about
+                # self-assessed gaps; without a real posting there is nothing to
+                # ground the gap analysis in, so the section stays open.
+                decision = decision.model_copy(
+                    update={"router_directive": RouterDirective.STAY.value}
+                )
             if decision.router_directive != proposed.router_directive:
                 logger.info(
                     "generate_decision: %s downgraded to stay (missing fields: %s)",

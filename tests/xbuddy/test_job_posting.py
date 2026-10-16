@@ -455,3 +455,78 @@ async def test_picking_a_search_result_reads_it_and_keeps_it_for_the_section(
     await graph.ainvoke({"messages": [HumanMessage("What am I missing?")]}, cfg)
     assert "=== Braze - Senior Software Engineer I, Email" in later.prompts[0][0].content
 
+
+
+# --- Skill Gap needs a real posting -----------------------------------------------------------
+
+
+def _decide(monkeypatch, decision: dict):
+    from agents.xbuddy.nodes import generate_decision as decision_mod
+
+    monkeypatch.setattr(
+        decision_mod,
+        "get_chat_model",
+        lambda config=None: FakeListChatModel(responses=[json.dumps(decision)]),
+    )
+    return decision_mod.generate_decision_node
+
+
+CONFIRM_SKILL_GAP = {
+    "router_directive": "next", "is_satisfied": True, "should_save_content": True,
+    "section_summary": "Gaps: Kafka. Action: Kafka course.",
+    "covered_fields": ["job_sources", "requirements", "gaps", "learning_actions"],
+}  # fmt: skip
+
+
+def _skill_gap_turn(**extra):
+    messages = [AIMessage("Here is the summary. Confirm?"), HumanMessage("yes"), AIMessage("Thanks!")]
+    return skill_gap_state(messages=messages, **extra)
+
+
+@pytest.mark.asyncio
+async def test_skill_gap_cannot_finish_without_any_posting(monkeypatch):
+    node = _decide(monkeypatch, CONFIRM_SKILL_GAP)
+    self_assessed = [HumanMessage("I am weak at Kubernetes and AWS."), AIMessage("Noted.")]
+
+    result = await node(_skill_gap_turn(short_memory=self_assessed), CONFIG)
+
+    assert result["router_directive"] == "stay"
+
+
+@pytest.mark.asyncio
+async def test_skill_gap_can_finish_with_a_posting_jobbuddy_read(monkeypatch):
+    node = _decide(monkeypatch, CONFIRM_SKILL_GAP)
+
+    result = await node(_skill_gap_turn(fetched_postings=[CHOSEN]), CONFIG)
+
+    assert result["router_directive"] == "next"
+
+
+@pytest.mark.asyncio
+async def test_skill_gap_can_finish_with_a_pasted_posting(monkeypatch):
+    node = _decide(monkeypatch, CONFIRM_SKILL_GAP)
+    pasted = HumanMessage("Maple - Backend Developer\n" + "Requirements: Python, Django. " * 20)
+
+    result = await node(_skill_gap_turn(short_memory=[pasted]), CONFIG)
+
+    assert result["router_directive"] == "next"
+
+
+@pytest.mark.asyncio
+async def test_other_sections_do_not_need_a_posting(monkeypatch):
+    from agents.xbuddy.prompts import get_section_template as template
+
+    decision = {**CONFIRM_SKILL_GAP, "covered_fields": template(SectionID.BACKGROUND).required_fields}
+    node = _decide(monkeypatch, decision)
+    state = _skill_gap_turn()
+    state["current_section"] = SectionID.BACKGROUND
+
+    result = await node(state, CONFIG)
+
+    assert result["router_directive"] == "next"
+
+
+def test_skill_gap_prompt_forbids_asking_for_self_assessed_gaps():
+    prompt = get_section_template(SectionID.SKILL_GAP).system_prompt_template
+    assert "Never ask the user which skills they lack" in prompt
+    assert "Until at least one posting has been pasted or read" in prompt
