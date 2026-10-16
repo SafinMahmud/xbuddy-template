@@ -11,6 +11,9 @@ code and never trusted blindly:
     section whose required fields were never collected.
   - "modify:<id>" must name a real section other than the current one.
   - Skill Gap cannot advance until there is a real posting (read or pasted).
+  - A "next" that would finish the conversation (no unfinished section left)
+    is refused while the reply is still asking the user a question, so the
+    roadmap never arrives before they answer.
 The decision model sees the whole section (its saved draft and recent
 messages), not only the last exchange, so covered_fields reflects everything
 the user said in the section. Checklist names are compared loosely
@@ -31,7 +34,7 @@ from ..enums import RouterDirective, SectionID
 from ..job_posting import section_has_posting
 from ..llm import get_chat_model
 from ..models import ChatAgentDecision, ChatAgentOutput, XBuddyState
-from ..prompts import get_section_template
+from ..prompts import get_next_unfinished_section, get_section_template
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +183,17 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
                 # The model may believe the section is done after a chat about
                 # self-assessed gaps; without a real posting there is nothing to
                 # ground the gap analysis in, so the section stays open.
+                decision = decision.model_copy(
+                    update={"router_directive": RouterDirective.STAY.value}
+                )
+            if (
+                decision.router_directive == RouterDirective.NEXT.value
+                and "?" in str(reply.content)
+                and get_next_unfinished_section(state.get("section_states") or {}, exclude=current)
+                is None
+            ):
+                # Advancing now would write the roadmap, but the reply just asked the
+                # user something. Wait for the answer.
                 decision = decision.model_copy(
                     update={"router_directive": RouterDirective.STAY.value}
                 )

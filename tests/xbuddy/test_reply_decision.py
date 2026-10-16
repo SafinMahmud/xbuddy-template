@@ -336,3 +336,27 @@ async def test_empty_reply_twice_falls_back(monkeypatch):
     use_model(monkeypatch, reply_mod, FakeListChatModel(responses=["", "  "]))
     result = await generate_reply_node(base_state(messages=[HumanMessage("hi")]), CONFIG)
     assert result["messages"][0].content == FALLBACK_REPLY
+
+
+@pytest.mark.asyncio
+async def test_no_roadmap_while_the_reply_asks_a_question(monkeypatch):
+    """Live bug: the last open section was marked done while the reply asked the user
+    a question, so the roadmap arrived before they could answer."""
+    raw = json.dumps({
+        "router_directive": "next", "is_satisfied": True, "section_summary": "Interview prep",
+        "covered_fields": get_section_template(SectionID.INTERVIEW_PREP).required_fields,
+    })
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[raw, raw]))
+    state = base_state(messages=exchange("I'm weak on system design", "Which formats do you expect?"))
+    for sid in SectionID:
+        state["section_states"][sid.value] = state["section_states"][sid.value].model_copy(
+            update={"status": SectionStatus.DONE})
+    state["current_section"] = SectionID.INTERVIEW_PREP
+    state["section_states"]["interview_prep"] = state["section_states"]["interview_prep"].model_copy(
+        update={"status": SectionStatus.IN_PROGRESS})
+
+    assert (await generate_decision_node(state, CONFIG))["router_directive"] == "stay"
+
+    # A closing reply with no question finishes as before.
+    state["messages"] = exchange("Yes", "Thanks! I'm putting together your roadmap now.")
+    assert (await generate_decision_node(state, CONFIG))["router_directive"] == "next"
