@@ -25,12 +25,14 @@ const SERVER_NOTE: Partial<Record<ServerState, string>> = {
 
 export default function Chat({ messages, busy, loading, server, placeholder, onSend }: Props) {
   const [draft, setDraft] = useState("");
-  const endRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Keep the newest text in view while a reply streams in.
+  // Keep the newest text in view while a reply streams in. Scroll only the
+  // message list: scrollIntoView would also scroll the page itself.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
+    const scroller = scrollerRef.current;
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
   }, [messages]);
 
   // Grow the input with its content, up to the CSS max-height.
@@ -55,7 +57,7 @@ export default function Chat({ messages, busy, loading, server, placeholder, onS
 
   return (
     <div className="chat">
-      <div className="messages" aria-live="polite">
+      <div className="messages" aria-live="polite" ref={scrollerRef}>
         <div className="column">
           {loading ? (
             <p className="quiet">Loading your conversation…</p>
@@ -90,7 +92,6 @@ export default function Chat({ messages, busy, loading, server, placeholder, onS
               </article>
             ))
           )}
-          <div ref={endRef} />
         </div>
       </div>
 
