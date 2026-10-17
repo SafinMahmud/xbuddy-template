@@ -46,6 +46,30 @@ def _unsaved_details(section_states: dict[str, SectionState], current: SectionID
     return "\n".join(lines)
 
 
+_STATUS_WORDS = {
+    SectionStatus.DONE: "done",
+    SectionStatus.IN_PROGRESS: "in progress",
+    SectionStatus.PENDING: "not started",
+}
+
+
+def _progress_block(section_states: dict[str, SectionState], current: SectionID) -> str:
+    """The real section statuses, so the reply can never run ahead of the graph."""
+    lines = []
+    for section_id in SectionID:
+        state = section_states.get(section_id.value)
+        status = state.status if state is not None else SectionStatus.PENDING
+        mark = " <- CURRENT" if section_id == current else ""
+        lines.append(f"- {get_section_template(section_id).name}: {_STATUS_WORDS[status]}{mark}")
+    return (
+        "PROGRESS (recorded by the system; this is the truth even if the conversation "
+        "seems to have moved on):\n" + "\n".join(lines) + "\n"
+        "Work only on the CURRENT section. Never ask about, summarize or plan a section "
+        "that is not started. Never write the roadmap yourself and never say all sections "
+        "are complete: the system writes the roadmap once every section is done."
+    )
+
+
 def build_context_packet(
     section_id: SectionID | str, section_states: dict[str, SectionState]
 ) -> ContextPacket:
@@ -54,7 +78,11 @@ def build_context_packet(
     sid = template.section_id
     state = section_states.get(sid.value) or SectionState(section_id=sid)
 
-    parts = [BASE_RULES.strip(), template.system_prompt_template.strip()]
+    parts = [
+        BASE_RULES.strip(),
+        template.system_prompt_template.strip(),
+        _progress_block(section_states, sid),
+    ]
     recap = _confirmed_recap(section_states, sid)
     if recap:
         parts.append("CONFIRMED SO FAR (recap only this, do not re-ask):\n" + recap)

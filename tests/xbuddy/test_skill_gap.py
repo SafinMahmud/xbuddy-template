@@ -85,3 +85,42 @@ def test_skill_gap_prompt_forbids_asking_for_self_assessed_gaps():
     prompt = get_section_template(SectionID.SKILL_GAP).system_prompt_template
     assert "Never ask the user which skills they lack" in prompt
     assert "Until at least one posting has been pasted" in prompt
+
+
+# --- live run Oct 17: Skill Gap stuck while the chat ran ahead -------------------------------
+
+def test_reply_prompt_states_real_progress_and_forbids_a_fake_roadmap():
+    state = skill_gap_state()
+    prompt = state["context_packet"].system_prompt
+    assert "- Skill Gap: in progress <- CURRENT" in prompt
+    assert "- Application Strategy: not started" in prompt
+    assert "Never write the roadmap yourself" in prompt
+
+
+@pytest.mark.asyncio
+async def test_the_decision_keeps_seeing_the_posting_in_a_long_section(monkeypatch):
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel as Fake
+
+    posting = HumanMessage("Fintech company - GenAI Engineer\n" + "Requirements: RAG, LangChain. " * 100)
+    chatter = []
+    for i in range(9):
+        chatter += [AIMessage(f"question {i}?"), HumanMessage(f"answer {i}")]
+    memory = [AIMessage("Paste a posting"), posting, *chatter]
+
+    seen = []
+
+    class Recording(Fake):
+        async def ainvoke(self, input, config=None, **kwargs):
+            seen.append(input)
+            return await super().ainvoke(input, config, **kwargs)
+
+    monkeypatch.setattr(decision_mod, "get_chat_model",
+                        lambda config=None: Recording(responses=[json.dumps(CONFIRM_SKILL_GAP)]))
+    state = skill_gap_state(short_memory=memory, messages=[*memory, AIMessage("Thanks!")])
+    result = await decision_mod.generate_decision_node(state, CONFIG)
+
+    transcript = seen[0][1].content
+    assert "Fintech company - GenAI Engineer" in transcript  # still in view after 20 messages
+    assert "characters in total]" in transcript  # but cut, to save tokens
+    assert len(transcript) < 4000
+    assert result["router_directive"] == "next"

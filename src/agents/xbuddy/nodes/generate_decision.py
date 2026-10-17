@@ -104,13 +104,17 @@ def section_has_posting(state: XBuddyState) -> bool:
     PASTED_POSTING_MIN_CHARS long. It is the same text extraction reads, so a
     section can't be confirmed with nothing for extraction to quote.
     """
+    # Short memory is capped, so a long Skill Gap chat could push the posting out
+    # of it; the recent transcript is checked too.
+    recent = [*(state.get("short_memory") or []), *(state.get("messages") or [])[-40:]]
     return any(
         isinstance(m, HumanMessage) and len(str(m.content)) >= PASTED_POSTING_MIN_CHARS
-        for m in state.get("short_memory") or []
+        for m in recent
     )
 
 
-SECTION_HISTORY_LIMIT = 12  # section messages shown to the decision model
+SECTION_HISTORY_LIMIT = 20  # section messages shown to the decision model
+MESSAGE_CHARS = 600  # longer messages (pasted postings) are cut, but stay in view
 
 
 def _field_key(name: str) -> str:
@@ -126,6 +130,18 @@ def missing_required_fields(decision: ChatAgentDecision, current: SectionID) -> 
     ]
 
 
+def _clip(text: str) -> str:
+    """A long message cut to MESSAGE_CHARS, saying how long it was.
+
+    A pasted posting must stay visible to the decision for the whole section
+    (it is the job source), but its full text is not needed to judge routing,
+    and sending it every turn costs tokens (Groq free-tier rate limits).
+    """
+    if len(text) <= MESSAGE_CHARS:
+        return text
+    return f"{text[:MESSAGE_CHARS]} [... pasted text, {len(text)} characters in total]"
+
+
 def _speaker(message) -> str:
     return "USER" if isinstance(message, HumanMessage) else "ASSISTANT"
 
@@ -139,7 +155,7 @@ def build_transcript(state: XBuddyState, reply: AIMessage) -> str:
         m for m in (state.get("short_memory") or state.get("messages") or [])
         if isinstance(m, (HumanMessage, AIMessage)) and m is not reply
     ][-SECTION_HISTORY_LIMIT:]
-    lines = [f"{_speaker(m)}: {m.content}" for m in history] or ["(none)"]
+    lines = [f"{_speaker(m)}: {_clip(str(m.content))}" for m in history] or ["(none)"]
     return (
         f"SAVED DRAFT OF THIS SECTION:\n{draft}\n\n"
         "SECTION CONVERSATION SO FAR:\n" + "\n\n".join(lines) + "\n\n"
@@ -214,9 +230,13 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
                 )
             if decision.router_directive != proposed.router_directive:
                 logger.info(
-                    "generate_decision: %s downgraded to stay (missing fields: %s)",
+                    "generate_decision: %s downgraded to stay (missing fields: %s; "
+                    "satisfied: %s; summary: %s; posting: %s)",
                     proposed.router_directive,
                     missing_required_fields(proposed, current) or "none",
+                    proposed.is_satisfied,
+                    bool((proposed.section_summary or "").strip()),
+                    section_has_posting(state) if current == SectionID.SKILL_GAP else "n/a",
                 )
         except Exception as exc:  # noqa: BLE001
             # Any failure (malformed output or provider error) falls back to "stay"
