@@ -454,3 +454,33 @@ async def test_graph_last_confirmation_produces_roadmap(monkeypatch, store):
     assert final["finished"] is True
     assert all(s.status == SectionStatus.DONE for s in final["section_states"].values())
     assert store.roadmaps == [GOOD_ROADMAP.strip()]
+
+
+# --- long requirement names from real postings (live run, Oct 16) -----------------------------
+
+def test_long_requirement_names_count_when_reworded():
+    from agents.xbuddy.roadmap import requirement_mentioned
+
+    roadmap = (
+        "## Skill gaps to close\n"
+        "- Correctness-critical mindset: idempotency and failure modes (must-have)\n"
+        "- Backend development in Go, Python or Java for cloud-native systems\n"
+        "- AI-native engineering practices\n"
+        "- 2+ years of software development: already met\n"
+        "## Learning plan\nx\n"
+    )
+    for name in [
+        "Correctness‑critical mindset (idempotency, reconciliation, failure‑mode reasoning)",
+        "Backend development with Go, Python, or Java (cloud‑native architectures)",
+        "AI‑native engineering practices (AI‑augmented workflows, tooling)",
+        "2+ years software development experience",
+    ]:
+        assert requirement_mentioned(name, roadmap), name
+    assert not requirement_mentioned("Solid understanding of OAuth, OIDC, SAML", roadmap)
+
+
+def test_checklist_counts_plain_bullets_and_numbers():
+    from agents.xbuddy.roadmap import checklist_items
+
+    roadmap = "## This week's checklist\n- one\n- [ ] two\n3. three\n* four\n☐ five\n"
+    assert checklist_items(roadmap) == 5

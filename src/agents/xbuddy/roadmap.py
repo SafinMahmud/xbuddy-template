@@ -46,7 +46,12 @@ Rules:
 - The 8-week plan table must have exactly 8 week rows (Week 1 to Week 8).
 - When you say how many postings mention a skill, use the counts given below
   exactly, written as "N of M postings".
-- Name every extracted requirement listed below under "Skill gaps to close".
+- Name every extracted requirement listed below under "Skill gaps to close",
+  using its name as written (you may leave out the part in brackets).
+- If the user's confirmed background already meets a requirement (for example
+  the years of experience asked for), still list it, but mark it "already met"
+  instead of treating it as a gap.
+- Write the checklist as Markdown checkboxes, one per line: "- [ ] ..."
 - No placeholders such as [TBD]. No salary or pay figures.
 
 Keep it concise, specific, and encouraging.
@@ -69,6 +74,13 @@ TOP_REQUIREMENTS = 5
 _PLACEHOLDERS = ("[tbd]", "[not provided]", "todo", "lorem ipsum")
 _COUNT_CLAIM = re.compile(r"(\d+)\s+of\s+(\d+)\s+postings?", re.IGNORECASE)
 _CHECKBOX = re.compile(r"^\s*[-*]\s*\[[ xX]?\]", re.MULTILINE)
+# Any list item: "- x", "* x", "+ x", "1. x", "1) x", "- [ ] x", "☐ x".
+_LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)]|[\u2610\u2611\u2612])\s+\S", re.MULTILINE)
+_STOPWORDS = frozenset(
+    {"and", "or", "the", "a", "an", "of", "with", "in", "to", "for", "on", "e", "g", "eg",
+     "experience", "knowledge", "understanding", "strong", "solid", "deep", "proficiency"}
+)
+MENTION_SHARE = 0.6  # share of a requirement's key words the gaps section must contain
 _MONEY = re.compile(r"[$£€]\s?\d")
 _TABLE_DIVIDER = re.compile(r"^\|?[\s:|-]+\|?$")
 _YEARS = re.compile(r"(\d+)\+?\s*(?:years|year|yrs)\b", re.IGNORECASE)
@@ -322,6 +334,37 @@ def _section_body(roadmap: str, heading: str) -> str:
     return "\n".join(body)
 
 
+def _key_words(text: str) -> set[str]:
+    words = re.findall(r"[a-z0-9+#]+", _normalize(text))
+    return {w for w in words if w not in _STOPWORDS and (len(w) > 2 or w.isdigit())}
+
+
+def requirement_mentioned(name: str, roadmap: str) -> bool:
+    """True if the roadmap names this requirement, allowing for light rewording.
+
+    Requirement names read from real postings are long ("Correctness-critical
+    mindset (idempotency, reconciliation, failure-mode reasoning)"), and the
+    model shortens or rewords them. Accept the full name, the name without its
+    bracketed part, or most of its key words inside the Skill gaps section.
+    """
+    text = _normalize(roadmap)
+    full = _normalize(name).strip()
+    core = full.split("(", 1)[0].strip(" -:,")
+    if full in text or (core and core in text):
+        return True
+    wanted = _key_words(core or full)
+    if not wanted:
+        return False
+    gaps = _key_words(_section_body(roadmap, "## Skill gaps to close"))
+    return len(wanted & gaps) / len(wanted) >= MENTION_SHARE
+
+
+def checklist_items(roadmap: str) -> int:
+    """List items under the checklist heading, checkbox or not."""
+    body = _section_body(roadmap, "## This week's checklist")
+    return max(len(_LIST_ITEM.findall(body)), len(_CHECKBOX.findall(body)))
+
+
 def ranked_requirements(user_data: JobBuddyData) -> list:
     return sorted(user_data.requirements, key=lambda r: (-r.frequency, r.name.lower()))
 
@@ -345,7 +388,7 @@ def validate_roadmap(roadmap: str, user_data: JobBuddyData) -> list[str]:
     week_rows = max(len(plan_rows) - 1, 0)  # minus the header row
     if week_rows != PLAN_WEEKS:
         problems.append(f"8-week plan has {week_rows} week rows, expected {PLAN_WEEKS}")
-    checklist = len(_CHECKBOX.findall(_section_body(roadmap, "## This week's checklist")))
+    checklist = checklist_items(roadmap)
     if checklist < MIN_CHECKLIST_ITEMS:
         problems.append(f"checklist has {checklist} items, expected at least {MIN_CHECKLIST_ITEMS}")
 
@@ -358,7 +401,7 @@ def validate_roadmap(roadmap: str, user_data: JobBuddyData) -> list[str]:
                 f"ungrounded claim '{match.group(0)}': the user supplied {total} postings"
             )
     for requirement in ranked_requirements(user_data)[:TOP_REQUIREMENTS]:
-        if requirement.name.lower() not in text:
+        if not requirement_mentioned(requirement.name, roadmap):
             problems.append(f"skill gap not mentioned: {requirement.name}")
 
     # Completeness

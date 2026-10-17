@@ -52,6 +52,21 @@ CONVERSATION = {
         "Behavioral and system design interviews, 2 mock interviews a week", {}),
 }
 
+# What the user types in the first turn of a section, when it is more than the summary.
+# Skill Gap needs real postings: the section cannot be confirmed without one.
+FIRST_MESSAGE = {
+    SectionID.SKILL_GAP: (
+        "Shopify - Backend\n"
+        "We run Kubernetes in production across every service. You will own backend "
+        "services in Ruby and Go, on-call included. Docker is a plus.\n\n"
+        "Wealthsimple - SWE\n"
+        "Build and operate Python services on our platform. We are looking for "
+        "experience with K8s, CI/CD, and observability, and you will review code "
+        "and mentor others on the team.\n\n"
+        "Gaps: Kubernetes and Docker. Learning action: Kubernetes course plus a deployed project"
+    ),
+}
+
 ROADMAP = """# Your Job Search Roadmap
 
 ## Where you are now
@@ -146,7 +161,8 @@ def complete_conversation(monkeypatch):
             set_model(monkeypatch, decision_mod, json.dumps({
                 "router_directive": "stay", "should_save_content": True,
                 "section_summary": summary, "covered_fields": fields}))
-            state = await graph.ainvoke({"messages": [HumanMessage(summary)]}, cfg)
+            first = FIRST_MESSAGE.get(section, summary)
+            state = await graph.ainvoke({"messages": [HumanMessage(first)]}, cfg)
             assert state["current_section"] == section
             assert state["section_states"][section.value].confirmed_summary is None
             # Turn 2: the user confirms.

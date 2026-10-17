@@ -80,11 +80,6 @@ class Settings(BaseSettings):
 
     OPENWEATHERMAP_API_KEY: SecretStr | None = None
 
-    # Job search tool: reads the public `jobs` table of the job-tracker project
-    # (github.com/SafinMahmud/job-tracker) through Supabase's REST API.
-    # Without both values the tool reports "not set up" instead of searching.
-    JOB_TRACKER_SUPABASE_URL: str | None = None
-    JOB_TRACKER_SUPABASE_KEY: SecretStr | None = None  # the project's public anon key
 
 
     LANGCHAIN_TRACING_V2: bool = False

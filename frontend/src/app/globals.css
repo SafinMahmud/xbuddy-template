@@ -321,6 +321,10 @@ button:disabled {
 }
 
 .messages {
+  /* position: relative keeps the visually-hidden message headings inside this
+     scroller. Without it they were placed against the page, made the page
+     taller than the window, and the whole page scrolled away. */
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -512,6 +516,7 @@ button:disabled {
 }
 
 .roadmap-page {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;

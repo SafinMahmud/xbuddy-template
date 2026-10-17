@@ -54,7 +54,8 @@ Return ONLY a JSON object matching this shape:
 {schema}
 
 Rules:
-- Use only what the user said or confirmed. Use null or [] when unknown.
+- Use only what the user said or confirmed, and the job postings they pasted.
+  Use null or [] when unknown.
 - Location is a city or region only. Never include salary or contact details.
 - For requirements, every evidence item must name the job source label it came
   from and quote a short phrase from that posting.
@@ -154,7 +155,9 @@ async def extract_section_data(
     )
     prompt = [
         SystemMessage(EXTRACTION_PROMPT.format(schema=_SCHEMAS[section_id])),
-        HumanMessage(f"CONFIRMED SUMMARY:\n{confirmed_summary}\n\nCONVERSATION:\n{transcript}"),
+        HumanMessage(
+            f"CONFIRMED SUMMARY:\n{confirmed_summary}\n\nCONVERSATION:\n{transcript}"
+        ),
     ]
     is_retry = attempt > 1
     extract_config = {
