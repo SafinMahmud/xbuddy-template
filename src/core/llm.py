@@ -163,7 +163,14 @@ def get_model(model_name: AllModelEnum | None = None, /) -> ModelT:
     if model_name in GoogleModelName:
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        return ChatGoogleGenerativeAI(model=api_model_name, temperature=temperature, max_tokens=max_tokens, streaming=True)
+        key = settings.GOOGLE_API_KEY
+        return ChatGoogleGenerativeAI(
+            model=api_model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            streaming=True,
+            **({"google_api_key": key.get_secret_value()} if key else {}),
+        )
     if model_name in VertexAIModelName:
         from langchain_google_vertexai import ChatVertexAI
 
