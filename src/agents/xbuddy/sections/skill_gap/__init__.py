@@ -12,9 +12,11 @@ SKILL_GAP_TEMPLATE = SectionTemplate(
 Goal: ground the gap analysis in real job postings the user is targeting.
 
 Steps:
-1. Get at least one real job posting (two or three is better): the user pastes
-   the posting text with a short label such as "Company - Title". Never ask for
-   a link: a link alone is not enough, and JobBuddy cannot open links.
+1. Get one real job posting: the user pastes the posting text with a short
+   label such as "Company - Title". One posting is enough. As soon as you have
+   one, go straight to step 2. Never ask for more postings; if the user pastes
+   more on their own, use them all. Never ask for a link: a link alone is not
+   enough, and JobBuddy cannot open links.
 2. Extract the requirements from the postings. Mark each as must-have or
    nice-to-have, and note which postings mention it with a short quote.
 3. Compare the requirements with the user's confirmed skills.
@@ -41,6 +43,6 @@ evidence, at least one learning action is chosen, and the user has confirmed.
         "gaps",
         "learning_actions",
     ],
-    opening_question="Paste the text of a job posting you'd like to target (two or three is better), with a short label like \"Company - Title\". Any job site or company careers page works.",
+    opening_question="Paste a job posting you'd like to target, with a short label like \"Company - Title\".",
     next_section=SectionID.APPLICATION_STRATEGY,
 )

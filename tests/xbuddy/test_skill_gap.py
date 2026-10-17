@@ -124,3 +124,11 @@ async def test_the_decision_keeps_seeing_the_posting_in_a_long_section(monkeypat
     assert "characters in total]" in transcript  # but cut, to save tokens
     assert len(transcript) < 4000
     assert result["router_directive"] == "next"
+
+
+def test_one_posting_is_enough():
+    """Live run: JobBuddy kept asking for a second posting after getting one."""
+    template = get_section_template(SectionID.SKILL_GAP)
+    prompt = " ".join(template.system_prompt_template.split())
+    assert "One posting is enough" in prompt and "Never ask for more postings" in prompt
+    assert "two or three" not in template.opening_question
