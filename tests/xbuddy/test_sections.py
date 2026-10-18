@@ -101,3 +101,13 @@ def test_packet_hands_off_to_next_section_or_roadmap():
     assert SECTION_TEMPLATES[SectionID.TARGET_ROLE].opening_question in bg
     last = build_context_packet(SectionID.INTERVIEW_PREP, states).system_prompt
     assert "job search roadmap" in last
+
+
+def test_opening_questions_are_broad_and_missing_items_are_asked_one_at_a_time():
+    """PM review: one broad prompt per section, then ask only for what is missing."""
+    from agents.xbuddy.sections.base_prompt import BASE_RULES
+
+    background = get_section_template(SectionID.BACKGROUND).opening_question
+    for word in ("role", "how long", "skills", "education"):
+        assert word in background
+    assert "ask only for what is still missing" in BASE_RULES

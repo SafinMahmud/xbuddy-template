@@ -7,7 +7,7 @@ https://github.com/Victoria824/FounderBuddy/blob/main/src/agents/founder_buddy/g
 
 from typing import Literal
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 
 from ..enums import RouterDirective
 from ..models import XBuddyState
@@ -22,19 +22,6 @@ def route_after_memory_updater(state: XBuddyState) -> Literal["implementation", 
     if state.get("should_generate_final_output", False):
         return "implementation"
     return "router"
-
-
-def route_after_reply(state: XBuddyState) -> Literal["tools", "generate_decision"]:
-    """After generate_reply: run the requested tool, or move on to the decision.
-
-    generate_reply leaves an AI message with tool calls at the end of tool_scratch
-    when the model asked for a tool. When it wrote the final reply, the scratch is
-    empty.
-    """
-    scratch = state.get("tool_scratch") or []
-    if scratch and isinstance(scratch[-1], AIMessage) and scratch[-1].tool_calls:
-        return "tools"
-    return "generate_decision"
 
 
 def route_decision(state: XBuddyState) -> Literal["generate_reply"] | None:

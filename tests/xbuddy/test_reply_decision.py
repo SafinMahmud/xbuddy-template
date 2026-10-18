@@ -278,3 +278,85 @@ async def test_decision_without_reply_skips_model(monkeypatch):
     result = await generate_decision_node(base_state(messages=[HumanMessage("hi")]), CONFIG)
     assert result["router_directive"] == "stay"
     assert "error_count" not in result
+
+
+# --- the decision sees the whole section, not only the last exchange -------------------------
+
+def test_field_names_match_loosely():
+    decision = parse_decision(json.dumps({
+        "router_directive": "next", "is_satisfied": True, "section_summary": "ok",
+        "covered_fields": ["Current role", "role-history", "Years experience", "skills",
+                           "EDUCATION"]}))
+    assert missing_required_fields(decision, SectionID.BACKGROUND) == []
+
+
+@pytest.mark.asyncio
+async def test_decision_prompt_holds_the_draft_and_earlier_section_messages(monkeypatch):
+    """Regression: with only the last exchange, the model could not list fields the user
+    gave earlier, 'next' was downgraded, and the section stayed stuck while the chat moved on."""
+    from agents.xbuddy.models import SectionContent
+
+    raw = json.dumps({"router_directive": "stay", "is_satisfied": None})
+    model = use_model(monkeypatch, decision_mod, RecordingModel(responses=[raw]))
+    reply = AIMessage("Thanks! What role are you aiming for next?")
+    memory = [
+        AIMessage("To start, what is your current or most recent job title?"),
+        HumanMessage("Backend developer, before that QA analyst, MSc in CS"),
+        AIMessage("Summary: backend dev, QA before, MSc CS. Right?"),
+        HumanMessage("Yes"),
+        reply,
+    ]
+    state = base_state(messages=list(memory), short_memory=list(memory))
+    bg = state["section_states"]["background"]
+    state["section_states"]["background"] = bg.model_copy(update={
+        "content": SectionContent(content={}, plain_text="Backend developer; 3 years; Python")})
+
+    await generate_decision_node(state, CONFIG)
+
+    transcript = model.calls[0][0][1].content
+    assert "Backend developer; 3 years; Python" in transcript  # saved draft
+    assert "before that QA analyst" in transcript  # an earlier turn of the section
+    assert transcript.count(reply.content) == 1  # the reply appears once, at the end
+
+
+@pytest.mark.asyncio
+async def test_empty_model_reply_is_retried_not_sent(monkeypatch):
+    """Regression: an empty model message reached the browser as a cut-off turn."""
+    model = use_model(monkeypatch, reply_mod, RecordingModel(responses=["", "What's your current role?"]))
+    state = base_state(messages=[HumanMessage("hi")])
+
+    result = await generate_reply_node(state, CONFIG)
+
+    assert result["messages"][0].content == "What's your current role?"
+    assert len(model.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_empty_reply_twice_falls_back(monkeypatch):
+    use_model(monkeypatch, reply_mod, FakeListChatModel(responses=["", "  "]))
+    result = await generate_reply_node(base_state(messages=[HumanMessage("hi")]), CONFIG)
+    assert result["messages"][0].content == FALLBACK_REPLY
+
+
+@pytest.mark.asyncio
+async def test_no_roadmap_while_the_reply_asks_a_question(monkeypatch):
+    """Live bug: the last open section was marked done while the reply asked the user
+    a question, so the roadmap arrived before they could answer."""
+    raw = json.dumps({
+        "router_directive": "next", "is_satisfied": True, "section_summary": "Interview prep",
+        "covered_fields": get_section_template(SectionID.INTERVIEW_PREP).required_fields,
+    })
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[raw, raw]))
+    state = base_state(messages=exchange("I'm weak on system design", "Which formats do you expect?"))
+    for sid in SectionID:
+        state["section_states"][sid.value] = state["section_states"][sid.value].model_copy(
+            update={"status": SectionStatus.DONE})
+    state["current_section"] = SectionID.INTERVIEW_PREP
+    state["section_states"]["interview_prep"] = state["section_states"]["interview_prep"].model_copy(
+        update={"status": SectionStatus.IN_PROGRESS})
+
+    assert (await generate_decision_node(state, CONFIG))["router_directive"] == "stay"
+
+    # A closing reply with no question finishes as before.
+    state["messages"] = exchange("Yes", "Thanks! I'm putting together your roadmap now.")
+    assert (await generate_decision_node(state, CONFIG))["router_directive"] == "next"

@@ -27,6 +27,6 @@ are identified and the user has confirmed the summary.
         "practice_plan",
         "stories",
     ],
-    opening_question="What kinds of interviews do you expect for these roles, for example behavioral, technical, or system design?",
+    opening_question="What interviews do you expect for these roles (behavioral, technical, system design), and which parts feel weakest to you?",
     next_section=None,
 )
