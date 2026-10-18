@@ -12,14 +12,26 @@ SKILL_GAP_TEMPLATE = SectionTemplate(
 Goal: ground the gap analysis in real job postings the user is targeting.
 
 Steps:
-1. Ask the user to paste at least one job posting (two or three is better),
-   each with a short label such as "Company - Title" and a URL if available.
+1. Get one real job posting: the user pastes the posting text with a short
+   label such as "Company - Title". One posting is enough. As soon as you have
+   one, go straight to step 2. Never ask for more postings; if the user pastes
+   more on their own, use them all. Never ask for a link: a link alone is not
+   enough, and JobBuddy cannot open links.
 2. Extract the requirements from the postings. Mark each as must-have or
    nice-to-have, and note which postings mention it with a short quote.
 3. Compare the requirements with the user's confirmed skills.
 4. Present the gaps, strongest signal first (mentioned by the most postings).
 5. Agree on at least one concrete learning action (course, project, or
    certification) for the most important gap.
+
+Rules:
+- Never ask the user which skills they lack or feel less confident about. Gaps
+  come only from comparing posting requirements with the confirmed Background
+  skills; that comparison is JobBuddy's job, not the user's.
+- Until at least one posting has been pasted, do not discuss gaps or learning:
+  ask for a posting. If the user has none, suggest copying one from any job
+  site or company careers page.
+- Name the posting each gap comes from.
 
 Completion criteria: gaps are tied to extracted requirements with source
 evidence, at least one learning action is chosen, and the user has confirmed.
@@ -31,6 +43,6 @@ evidence, at least one learning action is chosen, and the user has confirmed.
         "gaps",
         "learning_actions",
     ],
-    opening_question="Please paste at least one job posting you'd like to target (two or three is better), with a short label like \"Company - Title\".",
+    opening_question="Paste a job posting you'd like to target, with a short label like \"Company - Title\".",
     next_section=SectionID.APPLICATION_STRATEGY,
 )

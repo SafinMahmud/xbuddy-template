@@ -4,6 +4,7 @@ from typing import Annotated, Any
 
 from dotenv import find_dotenv
 from pydantic import (
+    AliasChoices,
     BeforeValidator,
     Field,
     HttpUrl,
@@ -60,7 +61,10 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: SecretStr | None = None
     DEEPSEEK_API_KEY: SecretStr | None = None
     ANTHROPIC_API_KEY: SecretStr | None = None
-    GOOGLE_API_KEY: SecretStr | None = None
+    # Google AI Studio calls it a Gemini API key; either name works in .env.
+    GOOGLE_API_KEY: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("GOOGLE_API_KEY", "GEMINI_API_KEY")
+    )
     GOOGLE_APPLICATION_CREDENTIALS: SecretStr | None = None
     GROQ_API_KEY: SecretStr | None = None
     USE_AWS_BEDROCK: bool = False
@@ -72,6 +76,9 @@ class Settings(BaseSettings):
     # If DEFAULT_MODEL is None, it will be set in model_post_init
     DEFAULT_MODEL: AllModelEnum | None = None  # type: ignore[assignment]
     AVAILABLE_MODELS: set[AllModelEnum] = set()  # type: ignore[assignment]
+    # Optional second model, tried when the default one fails (for example a
+    # provider's free-tier rate limit). Needs that provider's key too.
+    FALLBACK_MODEL: AllModelEnum | None = None  # type: ignore[assignment]
 
     # Set openai compatible api, mainly used for proof of concept
     COMPATIBLE_MODEL: str | None = None
@@ -80,11 +87,6 @@ class Settings(BaseSettings):
 
     OPENWEATHERMAP_API_KEY: SecretStr | None = None
 
-    # Job search tool: reads the public `jobs` table of the job-tracker project
-    # (github.com/SafinMahmud/job-tracker) through Supabase's REST API.
-    # Without both values the tool reports "not set up" instead of searching.
-    JOB_TRACKER_SUPABASE_URL: str | None = None
-    JOB_TRACKER_SUPABASE_KEY: SecretStr | None = None  # the project's public anon key
 
 
     LANGCHAIN_TRACING_V2: bool = False

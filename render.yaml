@@ -28,12 +28,6 @@ services:
         sync: false
       - key: LANGCHAIN_API_KEY
         sync: false
-      # Job search tool: job-tracker's public jobs table. Optional: without the key
-      # search reports "not set up" and the rest of the conversation is unaffected.
-      - key: JOB_TRACKER_SUPABASE_URL
-        sync: false
-      - key: JOB_TRACKER_SUPABASE_KEY
-        sync: false
       - key: LANGCHAIN_TRACING_V2
         value: "true"
       - key: LANGCHAIN_PROJECT

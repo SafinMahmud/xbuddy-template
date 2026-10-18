@@ -163,7 +163,14 @@ def get_model(model_name: AllModelEnum | None = None, /) -> ModelT:
     if model_name in GoogleModelName:
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        return ChatGoogleGenerativeAI(model=api_model_name, temperature=temperature, max_tokens=max_tokens, streaming=True)
+        key = settings.GOOGLE_API_KEY
+        return ChatGoogleGenerativeAI(
+            model=api_model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            streaming=True,
+            **({"google_api_key": key.get_secret_value()} if key else {}),
+        )
     if model_name in VertexAIModelName:
         from langchain_google_vertexai import ChatVertexAI
 
@@ -173,8 +180,15 @@ def get_model(model_name: AllModelEnum | None = None, /) -> ModelT:
 
         # Use temperature 0.0 for LlamaGuard (deterministic), otherwise use default
         guard_temp = 0.0 if model_name == GroqModelName.LLAMA_GUARD_4_12B else temperature
+        # Groq's free tier answers 429 when the per-minute token budget runs out,
+        # with a retry-after of up to ~25s. Five retries wait it out instead of
+        # failing the turn (the client's default is two).
         return ChatGroq(
-            model=api_model_name, temperature=guard_temp, max_tokens=max_tokens, streaming=True
+            model=api_model_name,
+            temperature=guard_temp,
+            max_tokens=max_tokens,
+            streaming=True,
+            max_retries=5,
         )
     if model_name in AWSModelName:
         from langchain_aws import ChatBedrock
