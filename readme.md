@@ -15,7 +15,7 @@ an eight-week roadmap built only from what you confirmed.
 Built by Safin Mahmud during the Brave Career AI Engineer Residency, starting from
 the [xbuddy-template](https://github.com/TryMOSS/xbuddy-template).
 
-**Demo (2 minutes):** not recorded yet; the link goes here once it is.
+**Demo (2 minutes):** [Loom walkthrough](https://www.loom.com/share/a069f5e0647c448fa3867a207c176d14), one real conversation from the first message to the roadmap.
 **Architecture explanation:** [docs/architecture.md](docs/architecture.md) (graph,
 state, guardrails and deployment, with diagrams).
 
