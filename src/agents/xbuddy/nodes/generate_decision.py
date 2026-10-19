@@ -166,12 +166,25 @@ def build_transcript(state: XBuddyState, reply: AIMessage) -> str:
     )
 
 
-# A user message that is plainly a confirmation ("yes", "looks good, thanks").
+# A user message that is ONLY a confirmation: "yes", "Yes, that's right!",
+# "looks good, thanks". The whole message must match, so "yes, actually change
+# my title" (confirmation plus a correction) never counts.
+_ACK = (
+    r"yes|yep|yeah|yup|correct|confirm(?:ed)?|right|exactly|perfect|sure|ok(?:ay)?|"
+    r"looks good|sounds good|all good|that'?s (?:right|correct|it)|it is|go ahead|"
+    r"thanks|thank you|please|great"
+)
 _CONFIRMATION = re.compile(
-    r"^\s*(yes|yep|yeah|yup|correct|confirmed?|looks good|that'?s (right|correct)|"
-    r"all good|sounds good|perfect|exactly|right|ok(ay)?|sure)\b",
+    rf"^\s*(?:{_ACK})(?:[\s,.!]+(?:{_ACK}))*[\s,.!]*$",
     re.IGNORECASE,
 )
+_FIRST_WORD_YES = re.compile(r"^\s*(?:yes|yep|yeah|yup|correct|confirm(?:ed)?|looks good|sounds good|ok(?:ay)?|sure)\b", re.IGNORECASE)
+
+
+def is_plain_confirmation(text: str) -> bool:
+    """True only when the whole message is a short acknowledgement starting with a 'yes'."""
+    text = (text or "").replace("\u2019", "'")
+    return bool(_FIRST_WORD_YES.match(text) and _CONFIRMATION.match(text))
 
 
 def last_user_text(state: XBuddyState) -> str:
@@ -189,7 +202,7 @@ def fill_satisfaction(decision: ChatAgentDecision, user_text: str) -> ChatAgentD
     if (
         decision.router_directive == RouterDirective.NEXT.value
         and decision.is_satisfied is None
-        and _CONFIRMATION.match(user_text or "")
+        and is_plain_confirmation(user_text)
     ):
         return decision.model_copy(update={"is_satisfied": True})
     return decision

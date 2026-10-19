@@ -390,3 +390,42 @@ async def test_an_explicit_false_is_respected(monkeypatch):
     use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[raw]))
     result = await generate_decision_node(base_state(messages=exchange("yes", "Thanks!")), CONFIG)
     assert result["router_directive"] == "stay"
+
+
+from agents.xbuddy.nodes.generate_decision import is_plain_confirmation  # noqa: E402
+
+
+@pytest.mark.parametrize("text", [
+    "yes", "Yes", "YES!", "yes.", "  yes  ", "yep", "yeah", "yup", "correct", "Correct.",
+    "confirmed", "confirm", "looks good", "Looks good, thanks!", "sounds good",
+    "yes, that's right", "Yes, that’s correct.", "yes it is", "ok", "okay, go ahead",
+    "yes please", "yes, thanks", "sure, looks good",
+])
+def test_plain_confirmations_count(text):
+    assert is_plain_confirmation(text)
+
+
+@pytest.mark.parametrize("text", [
+    "yes, actually change my title to SRE",
+    "yes but I also know Kubernetes",
+    "Yes. Add AWS to my skills",
+    "looks good except the location",
+    "yes and no",
+    "right now I'm not sure",
+    "thanks",  # politeness alone is not a confirmation
+    "no", "not quite", "change the years to 4", "",
+    "great question, but my title is wrong",
+])
+def test_mixed_or_other_messages_do_not_count(text):
+    assert not is_plain_confirmation(text)
+
+
+@pytest.mark.asyncio
+async def test_a_yes_followed_by_a_correction_stays(monkeypatch):
+    """Moss's review case: a confirmation token followed by a correction."""
+    raw = json.dumps({"router_directive": "next", "is_satisfied": None,
+                      "section_summary": "Backend dev, 3 years", "covered_fields": BACKGROUND_FIELDS})
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[raw]))
+    result = await generate_decision_node(
+        base_state(messages=exchange("yes, actually change my title to SRE", "Updated.")), CONFIG)
+    assert result["router_directive"] == "stay"
