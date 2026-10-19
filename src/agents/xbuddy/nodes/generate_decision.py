@@ -192,9 +192,26 @@ def last_user_text(state: XBuddyState) -> str:
     return str(user.content) if user else ""
 
 
+# A question that asks the user to confirm or correct what was summarized.
+_CONFIRM_QUESTION = re.compile(
+    r"\b(?:is|are)\b.*\b(?:correct|right|accurate)\b"
+    r"|\b(?:look|sound)s?\b.*\b(?:right|good|correct|ok(?:ay)?)\b"
+    r"|\bconfirm\b"
+    r"|\banything\b.*\b(?:change|adjust|add|correct|fix|update)\b",
+    re.IGNORECASE,
+)
+_QUESTIONS = re.compile(r"[^.!?\n]*\?")
+
+
+def is_confirmation_question(text: str) -> bool:
+    """True when the message asks the user to confirm the summary ("Is this correct?",
+    "Does this look right?", "Anything to change?"), not just any question."""
+    return any(_CONFIRM_QUESTION.search(q) for q in _QUESTIONS.findall(text or ""))
+
+
 def asked_to_confirm(state: XBuddyState) -> bool:
-    """True when the assistant message just before the user's reply asked a question
-    (the summary's "Is this correct?"). Only then is a short 'yes' a confirmation."""
+    """True when the assistant message just before the user's reply asked them to
+    confirm the summary. Only then is a short 'yes' a confirmation."""
     messages = list(state.get("messages") or [])
     user_index = next(
         (i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], HumanMessage)), None
@@ -204,7 +221,7 @@ def asked_to_confirm(state: XBuddyState) -> bool:
     prior = next(
         (m for m in reversed(messages[:user_index]) if isinstance(m, AIMessage)), None
     )
-    return prior is not None and "?" in str(prior.content)
+    return prior is not None and is_confirmation_question(str(prior.content))
 
 
 def fill_satisfaction(

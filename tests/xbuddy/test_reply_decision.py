@@ -454,3 +454,46 @@ async def test_ack_without_a_question_before_it_does_not_confirm(monkeypatch, an
     messages = [AIMessage("Here is a tip: add metrics to your resume."),
                 HumanMessage(answer), AIMessage("Great.")]
     assert (await generate_decision_node(base_state(messages=messages), CONFIG))["router_directive"] == "stay"
+
+
+# --- only a real confirmation prompt counts, per Moss's third review --------------------------
+
+from agents.xbuddy.nodes.generate_decision import is_confirmation_question  # noqa: E402
+
+
+@pytest.mark.parametrize("text", [
+    "Summary: backend dev, 3 years. Is this correct?",
+    "Is this summary correct? If anything needs changing, let me know.",
+    "Does this look right?",
+    "Does that sound good?",
+    "Is everything accurate?",
+    "Can you confirm this summary?",
+    "Anything you'd like to change?",
+    "Is there anything to adjust before we move on?",
+])
+def test_confirmation_prompts_are_recognized(text):
+    assert is_confirmation_question(text)
+
+
+@pytest.mark.parametrize("text", [
+    "Summary: backend dev, 3 years. Would you like me to suggest some courses?",
+    "Do you want to include your MSc thesis?",
+    "Have you used Kubernetes before?",
+    "Summary: backend dev. Shall I find you a mentor?",
+    "Do you want to add AWS to your skills?",
+    "Would a good course help?",
+    "Is Toronto your only city?",
+    "Here is your summary.",
+])
+def test_unrelated_questions_are_not_confirmation_prompts(text):
+    assert not is_confirmation_question(text)
+
+
+@pytest.mark.asyncio
+async def test_yes_to_an_unrelated_question_after_a_summary_does_not_advance(monkeypatch):
+    """Moss's case: a summary, then an unrelated question; 'yes' answers that question,
+    not the summary, so the section stays open."""
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[NULL_NEXT]))
+    messages = [AIMessage("Summary: backend dev, 3 years. Would you like me to suggest some courses?"),
+                HumanMessage("yes"), AIMessage("Sure, here are two.")]
+    assert (await generate_decision_node(base_state(messages=messages), CONFIG))["router_directive"] == "stay"
