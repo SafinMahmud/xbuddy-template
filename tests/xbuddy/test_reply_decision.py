@@ -360,3 +360,140 @@ async def test_no_roadmap_while_the_reply_asks_a_question(monkeypatch):
     # A closing reply with no question finishes as before.
     state["messages"] = exchange("Yes", "Thanks! I'm putting together your roadmap now.")
     assert (await generate_decision_node(state, CONFIG))["router_directive"] == "next"
+
+
+# --- is_satisfied left null on a plain "yes" (live Render log, Oct 19) ----------------------
+
+@pytest.mark.asyncio
+async def test_next_with_null_satisfaction_after_a_plain_yes_advances(monkeypatch):
+    raw = json.dumps({"router_directive": "next", "is_satisfied": None,
+                      "section_summary": "Backend dev, 3 years", "covered_fields": BACKGROUND_FIELDS})
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[raw]))
+    result = await generate_decision_node(base_state(messages=exchange("yes", "Thanks!")), CONFIG)
+    assert result["router_directive"] == "next"
+
+
+@pytest.mark.asyncio
+async def test_null_satisfaction_without_a_confirmation_still_stays(monkeypatch):
+    raw = json.dumps({"router_directive": "next", "is_satisfied": None,
+                      "section_summary": "Backend dev, 3 years", "covered_fields": BACKGROUND_FIELDS})
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[raw]))
+    result = await generate_decision_node(
+        base_state(messages=exchange("actually change my title to SRE", "Sure.")), CONFIG)
+    assert result["router_directive"] == "stay"
+
+
+@pytest.mark.asyncio
+async def test_an_explicit_false_is_respected(monkeypatch):
+    raw = json.dumps({"router_directive": "next", "is_satisfied": False,
+                      "section_summary": "Backend dev", "covered_fields": BACKGROUND_FIELDS})
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[raw]))
+    result = await generate_decision_node(base_state(messages=exchange("yes", "Thanks!")), CONFIG)
+    assert result["router_directive"] == "stay"
+
+
+from agents.xbuddy.nodes.generate_decision import is_plain_confirmation  # noqa: E402
+
+
+@pytest.mark.parametrize("text", [
+    "yes", "Yes", "YES!", "yes.", "  yes  ", "yep", "yeah", "yup", "correct", "Correct.",
+    "confirmed", "confirm", "looks good", "Looks good, thanks!", "sounds good",
+    "yes, that's right", "Yes, that’s correct.", "yes it is", "ok", "okay, go ahead",
+    "yes please", "yes, thanks", "sure, looks good",
+])
+def test_plain_confirmations_count(text):
+    assert is_plain_confirmation(text)
+
+
+@pytest.mark.parametrize("text", [
+    "yes, actually change my title to SRE",
+    "yes but I also know Kubernetes",
+    "Yes. Add AWS to my skills",
+    "looks good except the location",
+    "yes and no",
+    "right now I'm not sure",
+    "thanks",  # politeness alone is not a confirmation
+    "no", "not quite", "change the years to 4", "",
+    "great question, but my title is wrong",
+])
+def test_mixed_or_other_messages_do_not_count(text):
+    assert not is_plain_confirmation(text)
+
+
+@pytest.mark.asyncio
+async def test_a_yes_followed_by_a_correction_stays(monkeypatch):
+    """Moss's review case: a confirmation token followed by a correction."""
+    raw = json.dumps({"router_directive": "next", "is_satisfied": None,
+                      "section_summary": "Backend dev, 3 years", "covered_fields": BACKGROUND_FIELDS})
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[raw]))
+    result = await generate_decision_node(
+        base_state(messages=exchange("yes, actually change my title to SRE", "Updated.")), CONFIG)
+    assert result["router_directive"] == "stay"
+
+
+# --- acknowledgement plus filler ("yes please", "yes thanks"), per Moss's second review ------
+
+NULL_NEXT = json.dumps({"router_directive": "next", "is_satisfied": None,
+                        "section_summary": "Backend dev, 3 years", "covered_fields": BACKGROUND_FIELDS})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", ["yes please", "yes, thanks", "Yes thank you!", "looks good, thanks"])
+async def test_ack_plus_filler_confirms_when_it_answers_a_confirmation_question(monkeypatch, answer):
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[NULL_NEXT]))
+    messages = [AIMessage("Summary: backend dev, 3 years. Is this correct?"),
+                HumanMessage(answer), AIMessage("Thanks!")]
+    assert (await generate_decision_node(base_state(messages=messages), CONFIG))["router_directive"] == "next"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", ["yes please", "yes, thanks", "yes"])
+async def test_ack_without_a_question_before_it_does_not_confirm(monkeypatch, answer):
+    """Not an answer to "Is this correct?": filler or a request, so the section stays."""
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[NULL_NEXT]))
+    messages = [AIMessage("Here is a tip: add metrics to your resume."),
+                HumanMessage(answer), AIMessage("Great.")]
+    assert (await generate_decision_node(base_state(messages=messages), CONFIG))["router_directive"] == "stay"
+
+
+# --- only a real confirmation prompt counts, per Moss's third review --------------------------
+
+from agents.xbuddy.nodes.generate_decision import is_confirmation_question  # noqa: E402
+
+
+@pytest.mark.parametrize("text", [
+    "Summary: backend dev, 3 years. Is this correct?",
+    "Is this summary correct? If anything needs changing, let me know.",
+    "Does this look right?",
+    "Does that sound good?",
+    "Is everything accurate?",
+    "Can you confirm this summary?",
+    "Anything you'd like to change?",
+    "Is there anything to adjust before we move on?",
+])
+def test_confirmation_prompts_are_recognized(text):
+    assert is_confirmation_question(text)
+
+
+@pytest.mark.parametrize("text", [
+    "Summary: backend dev, 3 years. Would you like me to suggest some courses?",
+    "Do you want to include your MSc thesis?",
+    "Have you used Kubernetes before?",
+    "Summary: backend dev. Shall I find you a mentor?",
+    "Do you want to add AWS to your skills?",
+    "Would a good course help?",
+    "Is Toronto your only city?",
+    "Here is your summary.",
+])
+def test_unrelated_questions_are_not_confirmation_prompts(text):
+    assert not is_confirmation_question(text)
+
+
+@pytest.mark.asyncio
+async def test_yes_to_an_unrelated_question_after_a_summary_does_not_advance(monkeypatch):
+    """Moss's case: a summary, then an unrelated question; 'yes' answers that question,
+    not the summary, so the section stays open."""
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[NULL_NEXT]))
+    messages = [AIMessage("Summary: backend dev, 3 years. Would you like me to suggest some courses?"),
+                HumanMessage("yes"), AIMessage("Sure, here are two.")]
+    assert (await generate_decision_node(base_state(messages=messages), CONFIG))["router_directive"] == "stay"

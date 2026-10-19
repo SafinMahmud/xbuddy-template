@@ -180,6 +180,10 @@ class XBuddyState(MessagesState, total=False):
     last_error: str | None
     roadmap: str | None                 # renamed from final_output
     should_generate_final_output: bool
+    # Why the user's last confirmation could not complete the section (for
+    # example "these details are still missing: learning_actions"). The next
+    # reply must address it before anything else. None when nothing is blocked.
+    blocked_next: str | None
 
 def default_state() -> dict[str, Any]:
     """Fresh defaults for a brand-new thread (identity is set by initialize_node)."""
@@ -198,6 +202,7 @@ def default_state() -> dict[str, Any]:
         "last_error": None,
         "roadmap": None,
         "should_generate_final_output": False,
+        "blocked_next": None,
     }
 
 

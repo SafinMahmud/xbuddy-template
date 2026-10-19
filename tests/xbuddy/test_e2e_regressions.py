@@ -232,3 +232,62 @@ async def test_every_reply_prompt_carries_the_real_section_statuses(monkeypatch)
     assert "- Background: in progress <- CURRENT" in prompt
     assert "- Skill Gap: not started" in prompt
     assert "Never write the roadmap yourself" in prompt
+
+
+# --- a refused confirmation steers the next reply back (live site, Oct 19) -------------------
+
+@pytest.mark.asyncio
+async def test_a_refused_confirmation_steers_the_next_reply_back_to_the_section(monkeypatch):
+    """Live bug: Skill Gap's confirmation was refused, the chat ran on through the last
+    two sections and ended with 'everything's set', and no roadmap was ever written."""
+    from agents.xbuddy.agent import graph
+
+    class Recording(FakeListChatModel):
+        seen: list = []
+
+        async def ainvoke(self, input, config=None, **kwargs):
+            Recording.seen.append(input[0].content)
+            return await super().ainvoke(input, config, **kwargs)
+
+    cfg = {"configurable": {"thread_id": "e2e-steer", "user_id": 1}}
+    state = completed_state(should_generate_final_output=False, router_directive="stay")
+    for sid in ("skill_gap", "application_strategy", "interview_prep"):
+        state["section_states"][sid] = state["section_states"][sid].model_copy(
+            update={"status": SectionStatus.PENDING, "confirmed_summary": None})
+    state["section_states"]["skill_gap"] = state["section_states"]["skill_gap"].model_copy(
+        update={"status": SectionStatus.IN_PROGRESS})
+    state["current_section"] = SectionID.SKILL_GAP
+    posting = HumanMessage("Fintech - GenAI Engineer\n" + "Requirements: RAG, LangChain, Kubernetes. " * 20)
+    state["messages"] = [posting, AIMessage("Gaps: Kubernetes. Learning action: a course. Confirm?")]
+    state["short_memory"] = list(state["messages"])
+    await graph.aupdate_state(cfg, state)
+
+    # The user confirms, but the decision misses a checklist item: refused, reason stored.
+    use(monkeypatch, reply_mod, FakeListChatModel(responses=["Thanks! How are you applying today?"]))
+    use(monkeypatch, decision_mod, FakeListChatModel(responses=[json.dumps({
+        "router_directive": "next", "is_satisfied": True, "section_summary": "Gaps: Kubernetes",
+        "covered_fields": ["job_sources", "requirements", "gaps"]})]))
+    refused = await graph.ainvoke({"messages": [HumanMessage("yes")]}, cfg)
+
+    assert sidebar(refused)["current"] == "skill_gap"
+    assert "learning_actions" in refused["blocked_next"]
+
+    # Next turn: the reply is told to go back to Skill Gap before anything else.
+    Recording.seen = []
+    use(monkeypatch, reply_mod, Recording(responses=["One more thing for Skill Gap: which learning action?"]))
+    use(monkeypatch, decision_mod, FakeListChatModel(responses=[json.dumps({"router_directive": "stay"})]))
+    steered = await graph.ainvoke({"messages": [HumanMessage("LinkedIn and career pages")]}, cfg)
+
+    prompt = Recording.seen[-1]
+    assert "IMPORTANT, DO THIS FIRST" in prompt and "learning_actions" in prompt
+    assert steered["blocked_next"] is None  # the reason is used once, then cleared
+
+    # Once the section is complete it advances as normal.
+    use(monkeypatch, reply_mod, FakeListChatModel(responses=["Thanks! How are you applying today?"]))
+    use(monkeypatch, decision_mod, FakeListChatModel(responses=[json.dumps({
+        "router_directive": "next", "is_satisfied": True, "section_summary": "Gaps: Kubernetes; course",
+        "covered_fields": ["job_sources", "requirements", "gaps", "learning_actions"]})]))
+    use(monkeypatch, extraction_mod, FakeListChatModel(responses=['{"job_sources": [], "requirements": []}'] * 3))
+    done = await graph.ainvoke({"messages": [HumanMessage("A Kubernetes course. Yes.")]}, cfg)
+
+    assert sidebar(done)["current"] == "application_strategy"

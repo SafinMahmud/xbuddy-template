@@ -11,6 +11,9 @@ code and never trusted blindly:
     section whose required fields were never collected.
   - "modify:<id>" must name a real section other than the current one.
   - Skill Gap cannot advance until the user has pasted a real posting.
+  - When a "next" is refused, the reason is stored in `blocked_next`, and the
+    next reply is told to deal with it first (see generate_reply), so the chat
+    goes back to the open section instead of running ahead of the sidebar.
   - A "next" that would finish the conversation (no unfinished section left)
     is refused while the reply is still asking the user a question, so the
     roadmap never arrives before they answer.
@@ -43,7 +46,7 @@ _JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 DECISION_PROMPT = """You decide how a job-search coaching conversation should route.
 Return ONLY a JSON object, no prose, with these keys:
   "router_directive": "stay" | "next" | "modify:<section_id>"
-  "is_satisfied": true | false | null
+  "is_satisfied": true | false | null   (must be true whenever router_directive is "next")
   "user_satisfaction_feedback": short string or null
   "should_save_content": true | false
   "section_summary": plain-text summary of everything collected in the current
@@ -163,6 +166,86 @@ def build_transcript(state: XBuddyState, reply: AIMessage) -> str:
     )
 
 
+# A user message that is ONLY a confirmation: "yes", "Yes, that's right!",
+# "looks good, thanks". The whole message must match, so "yes, actually change
+# my title" (confirmation plus a correction) never counts.
+_ACK = (
+    r"yes|yep|yeah|yup|correct|confirm(?:ed)?|right|exactly|perfect|sure|ok(?:ay)?|"
+    r"looks good|sounds good|all good|that'?s (?:right|correct|it)|it is|go ahead|"
+    r"thanks|thank you|please|great"
+)
+_CONFIRMATION = re.compile(
+    rf"^\s*(?:{_ACK})(?:[\s,.!]+(?:{_ACK}))*[\s,.!]*$",
+    re.IGNORECASE,
+)
+_FIRST_WORD_YES = re.compile(r"^\s*(?:yes|yep|yeah|yup|correct|confirm(?:ed)?|looks good|sounds good|ok(?:ay)?|sure)\b", re.IGNORECASE)
+
+
+def is_plain_confirmation(text: str) -> bool:
+    """True only when the whole message is a short acknowledgement starting with a 'yes'."""
+    text = (text or "").replace("\u2019", "'")
+    return bool(_FIRST_WORD_YES.match(text) and _CONFIRMATION.match(text))
+
+
+def last_user_text(state: XBuddyState) -> str:
+    user = next((m for m in reversed(state.get("messages") or []) if isinstance(m, HumanMessage)), None)
+    return str(user.content) if user else ""
+
+
+# A question that asks the user to confirm or correct what was summarized.
+_CONFIRM_QUESTION = re.compile(
+    r"\b(?:is|are)\b.*\b(?:correct|right|accurate)\b"
+    r"|\b(?:look|sound)s?\b.*\b(?:right|good|correct|ok(?:ay)?)\b"
+    r"|\bconfirm\b"
+    r"|\banything\b.*\b(?:change|adjust|add|correct|fix|update)\b",
+    re.IGNORECASE,
+)
+_QUESTIONS = re.compile(r"[^.!?\n]*\?")
+
+
+def is_confirmation_question(text: str) -> bool:
+    """True when the message asks the user to confirm the summary ("Is this correct?",
+    "Does this look right?", "Anything to change?"), not just any question."""
+    return any(_CONFIRM_QUESTION.search(q) for q in _QUESTIONS.findall(text or ""))
+
+
+def asked_to_confirm(state: XBuddyState) -> bool:
+    """True when the assistant message just before the user's reply asked them to
+    confirm the summary. Only then is a short 'yes' a confirmation."""
+    messages = list(state.get("messages") or [])
+    user_index = next(
+        (i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], HumanMessage)), None
+    )
+    if not user_index:
+        return False
+    prior = next(
+        (m for m in reversed(messages[:user_index]) if isinstance(m, AIMessage)), None
+    )
+    return prior is not None and is_confirmation_question(str(prior.content))
+
+
+def fill_satisfaction(
+    decision: ChatAgentDecision, user_text: str, confirmation_asked: bool
+) -> ChatAgentDecision:
+    """A 'next' with is_satisfied left null counts as satisfied only when the user's
+    whole message is a plain acknowledgement AND it answers a question.
+
+    Live logs showed the model proposing 'next' with every field covered and a
+    summary, but is_satisfied null, so the section stuck. "yes please" or
+    "yes, thanks" are accepted because they answer "Is this correct?"; without
+    that question they could be filler or a request, so they don't count. An
+    explicit False is always respected.
+    """
+    if (
+        decision.router_directive == RouterDirective.NEXT.value
+        and decision.is_satisfied is None
+        and confirmation_asked
+        and is_plain_confirmation(user_text)
+    ):
+        return decision.model_copy(update={"is_satisfied": True})
+    return decision
+
+
 def apply_guardrails(decision: ChatAgentDecision, current: SectionID) -> ChatAgentDecision:
     """Downgrade decisions the conversation doesn't support to 'stay'."""
     directive = decision.router_directive
@@ -181,6 +264,25 @@ def apply_guardrails(decision: ChatAgentDecision, current: SectionID) -> ChatAge
     return decision
 
 
+def blocked_reason(
+    proposed: ChatAgentDecision, current: SectionID, state: XBuddyState, question_gate: bool
+) -> str:
+    """Plain words for why a proposed 'next' was refused, for the next reply."""
+    reasons = []
+    missing = missing_required_fields(proposed, current)
+    if missing:
+        reasons.append("these details are still missing: " + ", ".join(missing))
+    if proposed.is_satisfied is not True:
+        reasons.append("the user has not clearly confirmed the summary")
+    if not (proposed.section_summary or "").strip():
+        reasons.append("no summary of this section was shown yet")
+    if current == SectionID.SKILL_GAP and not section_has_posting(state):
+        reasons.append("no job posting has been pasted yet")
+    if question_gate:
+        reasons.append("the user still has to answer the last question")
+    return "; ".join(reasons) or "the section is not complete yet"
+
+
 async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> dict[str, Any]:
     """Produce a validated routing decision for the latest exchange."""
     current: SectionID = state["current_section"]
@@ -188,6 +290,7 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
     reply = messages[-1] if messages and isinstance(messages[-1], AIMessage) else None
 
     error_updates: dict[str, Any] = {}
+    blocked: str | None = None
     if reply is None:
         decision = _stay("no reply to evaluate")
     else:
@@ -204,7 +307,11 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
             response = await get_chat_model(config).ainvoke(
                 [SystemMessage(system), HumanMessage(transcript)], decision_config
             )
-            proposed = parse_decision(str(response.content))
+            proposed = fill_satisfaction(
+                parse_decision(str(response.content)),
+                last_user_text(state),
+                asked_to_confirm(state),
+            )
             decision = apply_guardrails(proposed, current)
             if (
                 current == SectionID.SKILL_GAP
@@ -217,18 +324,20 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
                 decision = decision.model_copy(
                     update={"router_directive": RouterDirective.STAY.value}
                 )
-            if (
+            question_gate = (
                 decision.router_directive == RouterDirective.NEXT.value
                 and "?" in str(reply.content)
                 and get_next_unfinished_section(state.get("section_states") or {}, exclude=current)
                 is None
-            ):
+            )
+            if question_gate:
                 # Advancing now would write the roadmap, but the reply just asked the
                 # user something. Wait for the answer.
                 decision = decision.model_copy(
                     update={"router_directive": RouterDirective.STAY.value}
                 )
             if decision.router_directive != proposed.router_directive:
+                blocked = blocked_reason(proposed, current, state, question_gate)
                 logger.info(
                     "generate_decision: %s downgraded to stay (missing fields: %s; "
                     "satisfied: %s; summary: %s; posting: %s)",
@@ -253,6 +362,7 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
             reply=str(reply.content) if reply else "", **decision.model_dump()
         ),
         "router_directive": decision.router_directive,
+        "blocked_next": blocked,
         "awaiting_satisfaction_feedback": decision.router_directive == RouterDirective.STAY.value
         and bool(decision.section_summary),
         **error_updates,
