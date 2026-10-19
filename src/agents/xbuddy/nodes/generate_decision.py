@@ -46,7 +46,7 @@ _JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
 DECISION_PROMPT = """You decide how a job-search coaching conversation should route.
 Return ONLY a JSON object, no prose, with these keys:
   "router_directive": "stay" | "next" | "modify:<section_id>"
-  "is_satisfied": true | false | null
+  "is_satisfied": true | false | null   (must be true whenever router_directive is "next")
   "user_satisfaction_feedback": short string or null
   "should_save_content": true | false
   "section_summary": plain-text summary of everything collected in the current
@@ -166,6 +166,35 @@ def build_transcript(state: XBuddyState, reply: AIMessage) -> str:
     )
 
 
+# A user message that is plainly a confirmation ("yes", "looks good, thanks").
+_CONFIRMATION = re.compile(
+    r"^\s*(yes|yep|yeah|yup|correct|confirmed?|looks good|that'?s (right|correct)|"
+    r"all good|sounds good|perfect|exactly|right|ok(ay)?|sure)\b",
+    re.IGNORECASE,
+)
+
+
+def last_user_text(state: XBuddyState) -> str:
+    user = next((m for m in reversed(state.get("messages") or []) if isinstance(m, HumanMessage)), None)
+    return str(user.content) if user else ""
+
+
+def fill_satisfaction(decision: ChatAgentDecision, user_text: str) -> ChatAgentDecision:
+    """A 'next' with is_satisfied left null, after a plain 'yes', counts as satisfied.
+
+    Live logs showed the model proposing 'next' with every field covered and a
+    summary, but is_satisfied null, so the section stuck. An explicit False is
+    still respected, and anything but a plain confirmation still stays.
+    """
+    if (
+        decision.router_directive == RouterDirective.NEXT.value
+        and decision.is_satisfied is None
+        and _CONFIRMATION.match(user_text or "")
+    ):
+        return decision.model_copy(update={"is_satisfied": True})
+    return decision
+
+
 def apply_guardrails(decision: ChatAgentDecision, current: SectionID) -> ChatAgentDecision:
     """Downgrade decisions the conversation doesn't support to 'stay'."""
     directive = decision.router_directive
@@ -227,7 +256,7 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
             response = await get_chat_model(config).ainvoke(
                 [SystemMessage(system), HumanMessage(transcript)], decision_config
             )
-            proposed = parse_decision(str(response.content))
+            proposed = fill_satisfaction(parse_decision(str(response.content)), last_user_text(state))
             decision = apply_guardrails(proposed, current)
             if (
                 current == SectionID.SKILL_GAP

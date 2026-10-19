@@ -360,3 +360,33 @@ async def test_no_roadmap_while_the_reply_asks_a_question(monkeypatch):
     # A closing reply with no question finishes as before.
     state["messages"] = exchange("Yes", "Thanks! I'm putting together your roadmap now.")
     assert (await generate_decision_node(state, CONFIG))["router_directive"] == "next"
+
+
+# --- is_satisfied left null on a plain "yes" (live Render log, Oct 19) ----------------------
+
+@pytest.mark.asyncio
+async def test_next_with_null_satisfaction_after_a_plain_yes_advances(monkeypatch):
+    raw = json.dumps({"router_directive": "next", "is_satisfied": None,
+                      "section_summary": "Backend dev, 3 years", "covered_fields": BACKGROUND_FIELDS})
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[raw]))
+    result = await generate_decision_node(base_state(messages=exchange("yes", "Thanks!")), CONFIG)
+    assert result["router_directive"] == "next"
+
+
+@pytest.mark.asyncio
+async def test_null_satisfaction_without_a_confirmation_still_stays(monkeypatch):
+    raw = json.dumps({"router_directive": "next", "is_satisfied": None,
+                      "section_summary": "Backend dev, 3 years", "covered_fields": BACKGROUND_FIELDS})
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[raw]))
+    result = await generate_decision_node(
+        base_state(messages=exchange("actually change my title to SRE", "Sure.")), CONFIG)
+    assert result["router_directive"] == "stay"
+
+
+@pytest.mark.asyncio
+async def test_an_explicit_false_is_respected(monkeypatch):
+    raw = json.dumps({"router_directive": "next", "is_satisfied": False,
+                      "section_summary": "Backend dev", "covered_fields": BACKGROUND_FIELDS})
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[raw]))
+    result = await generate_decision_node(base_state(messages=exchange("yes", "Thanks!")), CONFIG)
+    assert result["router_directive"] == "stay"
