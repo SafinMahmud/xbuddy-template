@@ -429,3 +429,28 @@ async def test_a_yes_followed_by_a_correction_stays(monkeypatch):
     result = await generate_decision_node(
         base_state(messages=exchange("yes, actually change my title to SRE", "Updated.")), CONFIG)
     assert result["router_directive"] == "stay"
+
+
+# --- acknowledgement plus filler ("yes please", "yes thanks"), per Moss's second review ------
+
+NULL_NEXT = json.dumps({"router_directive": "next", "is_satisfied": None,
+                        "section_summary": "Backend dev, 3 years", "covered_fields": BACKGROUND_FIELDS})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", ["yes please", "yes, thanks", "Yes thank you!", "looks good, thanks"])
+async def test_ack_plus_filler_confirms_when_it_answers_a_confirmation_question(monkeypatch, answer):
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[NULL_NEXT]))
+    messages = [AIMessage("Summary: backend dev, 3 years. Is this correct?"),
+                HumanMessage(answer), AIMessage("Thanks!")]
+    assert (await generate_decision_node(base_state(messages=messages), CONFIG))["router_directive"] == "next"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", ["yes please", "yes, thanks", "yes"])
+async def test_ack_without_a_question_before_it_does_not_confirm(monkeypatch, answer):
+    """Not an answer to "Is this correct?": filler or a request, so the section stays."""
+    use_model(monkeypatch, decision_mod, FakeListChatModel(responses=[NULL_NEXT]))
+    messages = [AIMessage("Here is a tip: add metrics to your resume."),
+                HumanMessage(answer), AIMessage("Great.")]
+    assert (await generate_decision_node(base_state(messages=messages), CONFIG))["router_directive"] == "stay"

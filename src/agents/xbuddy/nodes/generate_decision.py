@@ -192,16 +192,37 @@ def last_user_text(state: XBuddyState) -> str:
     return str(user.content) if user else ""
 
 
-def fill_satisfaction(decision: ChatAgentDecision, user_text: str) -> ChatAgentDecision:
-    """A 'next' with is_satisfied left null, after a plain 'yes', counts as satisfied.
+def asked_to_confirm(state: XBuddyState) -> bool:
+    """True when the assistant message just before the user's reply asked a question
+    (the summary's "Is this correct?"). Only then is a short 'yes' a confirmation."""
+    messages = list(state.get("messages") or [])
+    user_index = next(
+        (i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], HumanMessage)), None
+    )
+    if not user_index:
+        return False
+    prior = next(
+        (m for m in reversed(messages[:user_index]) if isinstance(m, AIMessage)), None
+    )
+    return prior is not None and "?" in str(prior.content)
+
+
+def fill_satisfaction(
+    decision: ChatAgentDecision, user_text: str, confirmation_asked: bool
+) -> ChatAgentDecision:
+    """A 'next' with is_satisfied left null counts as satisfied only when the user's
+    whole message is a plain acknowledgement AND it answers a question.
 
     Live logs showed the model proposing 'next' with every field covered and a
-    summary, but is_satisfied null, so the section stuck. An explicit False is
-    still respected, and anything but a plain confirmation still stays.
+    summary, but is_satisfied null, so the section stuck. "yes please" or
+    "yes, thanks" are accepted because they answer "Is this correct?"; without
+    that question they could be filler or a request, so they don't count. An
+    explicit False is always respected.
     """
     if (
         decision.router_directive == RouterDirective.NEXT.value
         and decision.is_satisfied is None
+        and confirmation_asked
         and is_plain_confirmation(user_text)
     ):
         return decision.model_copy(update={"is_satisfied": True})
@@ -269,7 +290,11 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
             response = await get_chat_model(config).ainvoke(
                 [SystemMessage(system), HumanMessage(transcript)], decision_config
             )
-            proposed = fill_satisfaction(parse_decision(str(response.content)), last_user_text(state))
+            proposed = fill_satisfaction(
+                parse_decision(str(response.content)),
+                last_user_text(state),
+                asked_to_confirm(state),
+            )
             decision = apply_guardrails(proposed, current)
             if (
                 current == SectionID.SKILL_GAP
