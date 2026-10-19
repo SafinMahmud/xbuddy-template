@@ -64,6 +64,17 @@ async def generate_reply_node(state: XBuddyState, config: RunnableConfig) -> dic
             "will be regenerated once they confirm the change.\n\n" + state["roadmap"]
         )
 
+    blocked = state.get("blocked_next")
+    if blocked:
+        system_prompt += (
+            "\n\n---\n\nIMPORTANT, DO THIS FIRST: the user tried to confirm this section, "
+            f"but it cannot be completed yet because {blocked}. If your last message "
+            "already moved on to another section, say in one short sentence that this "
+            "section needs one more thing first. Then ask only for what is missing, or "
+            "show this section's summary again and ask the user to confirm it. Do not "
+            "continue with any other section."
+        )
+
     try:
         # Getting the model is inside the try: a missing key must end in the
         # fallback reply, not a failed request.

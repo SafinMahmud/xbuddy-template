@@ -11,6 +11,9 @@ code and never trusted blindly:
     section whose required fields were never collected.
   - "modify:<id>" must name a real section other than the current one.
   - Skill Gap cannot advance until the user has pasted a real posting.
+  - When a "next" is refused, the reason is stored in `blocked_next`, and the
+    next reply is told to deal with it first (see generate_reply), so the chat
+    goes back to the open section instead of running ahead of the sidebar.
   - A "next" that would finish the conversation (no unfinished section left)
     is refused while the reply is still asking the user a question, so the
     roadmap never arrives before they answer.
@@ -181,6 +184,25 @@ def apply_guardrails(decision: ChatAgentDecision, current: SectionID) -> ChatAge
     return decision
 
 
+def blocked_reason(
+    proposed: ChatAgentDecision, current: SectionID, state: XBuddyState, question_gate: bool
+) -> str:
+    """Plain words for why a proposed 'next' was refused, for the next reply."""
+    reasons = []
+    missing = missing_required_fields(proposed, current)
+    if missing:
+        reasons.append("these details are still missing: " + ", ".join(missing))
+    if proposed.is_satisfied is not True:
+        reasons.append("the user has not clearly confirmed the summary")
+    if not (proposed.section_summary or "").strip():
+        reasons.append("no summary of this section was shown yet")
+    if current == SectionID.SKILL_GAP and not section_has_posting(state):
+        reasons.append("no job posting has been pasted yet")
+    if question_gate:
+        reasons.append("the user still has to answer the last question")
+    return "; ".join(reasons) or "the section is not complete yet"
+
+
 async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> dict[str, Any]:
     """Produce a validated routing decision for the latest exchange."""
     current: SectionID = state["current_section"]
@@ -188,6 +210,7 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
     reply = messages[-1] if messages and isinstance(messages[-1], AIMessage) else None
 
     error_updates: dict[str, Any] = {}
+    blocked: str | None = None
     if reply is None:
         decision = _stay("no reply to evaluate")
     else:
@@ -217,18 +240,20 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
                 decision = decision.model_copy(
                     update={"router_directive": RouterDirective.STAY.value}
                 )
-            if (
+            question_gate = (
                 decision.router_directive == RouterDirective.NEXT.value
                 and "?" in str(reply.content)
                 and get_next_unfinished_section(state.get("section_states") or {}, exclude=current)
                 is None
-            ):
+            )
+            if question_gate:
                 # Advancing now would write the roadmap, but the reply just asked the
                 # user something. Wait for the answer.
                 decision = decision.model_copy(
                     update={"router_directive": RouterDirective.STAY.value}
                 )
             if decision.router_directive != proposed.router_directive:
+                blocked = blocked_reason(proposed, current, state, question_gate)
                 logger.info(
                     "generate_decision: %s downgraded to stay (missing fields: %s; "
                     "satisfied: %s; summary: %s; posting: %s)",
@@ -253,6 +278,7 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
             reply=str(reply.content) if reply else "", **decision.model_dump()
         ),
         "router_directive": decision.router_directive,
+        "blocked_next": blocked,
         "awaiting_satisfaction_feedback": decision.router_directive == RouterDirective.STAY.value
         and bool(decision.section_summary),
         **error_updates,
