@@ -8,7 +8,10 @@ Reference: https://github.com/Victoria824/FounderBuddy/blob/main/src/agents/foun
      sections reach the model only through their confirmed summaries.
   3. Calls the model with the node's config, so LangGraph's "messages" stream
      mode forwards tokens to the /stream endpoint as they are generated.
-  4. An empty model message is never sent: it is retried once, then replaced
+  4. In the Skill Gap section, adds learning resources retrieved from the curated
+     library for the skills named in the pasted posting, so suggestions cite real
+     resources instead of invented ones (knowledge.retriever, no embeddings).
+  5. An empty model message is never sent: it is retried once, then replaced
      with the fallback reply (an empty reply reaches the browser as a cut-off turn).
 """
 
@@ -18,6 +21,8 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
+from ..enums import SectionID
+from ..knowledge import skill_gap_resources_block
 from ..llm import get_chat_model
 from ..models import XBuddyState
 from ..tools import build_context_packet
@@ -27,6 +32,26 @@ logger = logging.getLogger(__name__)
 SHORT_MEMORY_LIMIT = 20  # messages kept per section
 FALLBACK_REPLY = "Sorry, I had trouble responding just now. Could you say that again?"
 EMPTY_REPLY_NUDGE = "\n\n---\n\nWrite your reply to the user now, in plain text."
+
+
+def _skill_gap_resources(state: XBuddyState, short_memory: list[BaseMessage]) -> str:
+    """Library resources for the skills in the user's messages in this section."""
+    if state.get("current_section") != SectionID.SKILL_GAP:
+        return ""
+    texts = [_text(m.content) for m in short_memory if isinstance(m, HumanMessage)]
+    states = state.get("section_states") or {}
+    skill_gap = states.get(SectionID.SKILL_GAP.value)
+    if skill_gap is not None and skill_gap.content is not None and skill_gap.content.plain_text:
+        texts.append(skill_gap.content.plain_text)
+    background = states.get(SectionID.BACKGROUND.value)
+    user_data = state.get("user_data")
+    known = " ".join(
+        [
+            (background.confirmed_summary or "") if background is not None else "",
+            ", ".join(user_data.profile.skills) if user_data is not None else "",
+        ]
+    )
+    return skill_gap_resources_block("\n".join(texts), known=known)
 
 
 def _pending_user_message(messages: list[BaseMessage]) -> HumanMessage | None:
@@ -63,6 +88,10 @@ async def generate_reply_node(state: XBuddyState, config: RunnableConfig) -> dic
             "If the user wants to change an earlier answer, acknowledge it; the roadmap "
             "will be regenerated once they confirm the change.\n\n" + state["roadmap"]
         )
+
+    resources = _skill_gap_resources(state, short_memory)
+    if resources:
+        system_prompt += "\n\n---\n\n" + resources
 
     blocked = state.get("blocked_next")
     if blocked:

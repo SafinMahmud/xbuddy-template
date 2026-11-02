@@ -56,6 +56,43 @@ user to confirm. Any section can be reopened from a later one (`modify`).
 | Reply prompt carries the real status of every section | `generate_reply` | The model walking ahead of the state and writing its own roadmap |
 | Extracted data must quote the user's own words or posting | `memory_updater` | Untraceable requirements and invented counts |
 | Roadmap checks: structure, grounding, completeness, contradictions | `implementation` | A roadmap that is malformed, ungrounded, or contradicts confirmed data |
+| Every link in the roadmap must come from the learning-resource library (or the user's own posting) | `implementation` | Invented courses and dead links |
+
+## Learning resources (retrieval)
+
+```mermaid
+flowchart LR
+    Q["posting text or<br/>requirement name"] --> T["skill tags<br/>(fixed vocabulary)"]
+    Q --> B["BM25 over title,<br/>summary and tags"]
+    T --> S[score and rank]
+    B --> S
+    KB[("learning_resources.json<br/>67 curated resources")] --> S
+    S --> SG["Skill Gap reply prompt"]
+    S --> RM["roadmap prompt and fallback"]
+```
+
+Suggesting courses is where a model invents the most: titles that don't exist and
+links that 404. JobBuddy retrieves from a small curated library instead, and the
+prompts allow only what was retrieved.
+
+- **Library:** `src/agents/xbuddy/knowledge/learning_resources.json`. Each entry has
+  skill tags, level, cost and format.
+- **Retrieval:** skill tags first (a fixed vocabulary that knows "k8s" is Kubernetes
+  and that "react quickly" is not React), then BM25 for wording the tags miss. No
+  embeddings, so no extra API calls, no quota, and nothing heavy to load on Render.
+  A requirement like "5 years of experience" retrieves nothing rather than something
+  irrelevant.
+- **Skill Gap:** the reply prompt gets one resource per skill named in the pasted
+  posting, gaps first and skills the user already has last.
+- **Roadmap:** the prompt gets resources for the top requirements and must cite only
+  those. `validate_roadmap` rejects any other link; the fallback roadmap lists the
+  resources and strips links the summaries carried.
+- **Evaluation:** `tests/xbuddy/fixtures/retrieval_eval.json` holds 50 requirement-style
+  queries with the resources judged relevant, plus 8 that must retrieve nothing.
+  Run `cd src && python -m agents.xbuddy.knowledge.evaluation`. The test suite fails
+  if hit@3 drops below 0.95, MRR below 0.9, or any negative case retrieves something.
+- **Link check:** `cd src && python -m agents.xbuddy.knowledge.check_links` opens every
+  library link and lists any that fail.
 
 ## Deployment
 
@@ -80,4 +117,5 @@ sidebar draws.
 - Nodes: `src/agents/xbuddy/nodes/`
 - Section prompts and checklists: `src/agents/xbuddy/sections/`
 - Roadmap checks: `src/agents/xbuddy/roadmap.py`
+- Learning-resource library, retriever and evaluation: `src/agents/xbuddy/knowledge/`
 - End-to-end regressions for live bugs: `tests/xbuddy/test_e2e_regressions.py`

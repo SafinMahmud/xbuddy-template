@@ -1,0 +1,947 @@
+[
+  {
+    "id": "python-tutorial",
+    "title": "The Python Tutorial",
+    "provider": "Python Software Foundation",
+    "url": "https://docs.python.org/3/tutorial/",
+    "skills": [
+      "python"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Official walkthrough of Python syntax, data structures, modules and classes."
+  },
+  {
+    "id": "java-dev-learn",
+    "title": "Learn Java",
+    "provider": "Oracle (dev.java)",
+    "url": "https://dev.java/learn/",
+    "skills": [
+      "java"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Official Java learning path from language basics to the standard library."
+  },
+  {
+    "id": "tour-of-go",
+    "title": "A Tour of Go",
+    "provider": "The Go Authors",
+    "url": "https://go.dev/tour/",
+    "skills": [
+      "go"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "interactive",
+    "summary": "Interactive introduction to Go syntax, methods, interfaces and concurrency."
+  },
+  {
+    "id": "rust-book",
+    "title": "The Rust Programming Language",
+    "provider": "Rust Project",
+    "url": "https://doc.rust-lang.org/book/",
+    "skills": [
+      "rust"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "book",
+    "summary": "The official Rust book covering ownership, traits, error handling and concurrency."
+  },
+  {
+    "id": "csharp-docs",
+    "title": "C# documentation and tutorials",
+    "provider": "Microsoft Learn",
+    "url": "https://learn.microsoft.com/en-us/dotnet/csharp/",
+    "skills": [
+      "csharp"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Official C# and .NET tutorials from first program to advanced language features."
+  },
+  {
+    "id": "mdn-js-guide",
+    "title": "JavaScript Guide",
+    "provider": "MDN Web Docs",
+    "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide",
+    "skills": [
+      "javascript"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Reference-quality guide to JavaScript syntax, functions, objects, promises and modules."
+  },
+  {
+    "id": "ts-handbook",
+    "title": "The TypeScript Handbook",
+    "provider": "TypeScript team",
+    "url": "https://www.typescriptlang.org/docs/handbook/intro.html",
+    "skills": [
+      "typescript"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Official guide to TypeScript types, generics, narrowing and modules."
+  },
+  {
+    "id": "mdn-learn",
+    "title": "Learn web development",
+    "provider": "MDN Web Docs",
+    "url": "https://developer.mozilla.org/en-US/docs/Learn",
+    "skills": [
+      "html-css",
+      "javascript"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "course",
+    "summary": "Structured MDN curriculum for HTML, CSS, JavaScript and accessibility."
+  },
+  {
+    "id": "odin-project",
+    "title": "The Odin Project",
+    "provider": "The Odin Project",
+    "url": "https://www.theodinproject.com/",
+    "skills": [
+      "html-css",
+      "javascript",
+      "nodejs",
+      "react",
+      "git"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "course",
+    "summary": "Project-based full-stack web curriculum with Node or Ruby paths."
+  },
+  {
+    "id": "freecodecamp",
+    "title": "freeCodeCamp curriculum",
+    "provider": "freeCodeCamp",
+    "url": "https://www.freecodecamp.org/learn",
+    "skills": [
+      "html-css",
+      "javascript",
+      "python",
+      "data-analysis"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "course",
+    "summary": "Free certifications in responsive web design, JavaScript, Python and data analysis."
+  },
+  {
+    "id": "react-learn",
+    "title": "Learn React",
+    "provider": "React team",
+    "url": "https://react.dev/learn",
+    "skills": [
+      "react",
+      "javascript"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Official React tutorial: components, state, effects and thinking in React."
+  },
+  {
+    "id": "nextjs-learn",
+    "title": "Next.js Learn course",
+    "provider": "Vercel",
+    "url": "https://nextjs.org/learn",
+    "skills": [
+      "nextjs",
+      "react"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "course",
+    "summary": "Build a full Next.js app with routing, data fetching, auth and deployment."
+  },
+  {
+    "id": "nodejs-learn",
+    "title": "Learn Node.js",
+    "provider": "OpenJS Foundation",
+    "url": "https://nodejs.org/en/learn",
+    "skills": [
+      "nodejs",
+      "javascript"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Official Node.js guides on the runtime, async patterns, modules and npm."
+  },
+  {
+    "id": "fastapi-tutorial",
+    "title": "FastAPI Tutorial - User Guide",
+    "provider": "FastAPI",
+    "url": "https://fastapi.tiangolo.com/tutorial/",
+    "skills": [
+      "fastapi",
+      "python",
+      "rest-api"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Step-by-step guide to building typed REST APIs with FastAPI and Pydantic."
+  },
+  {
+    "id": "django-tutorial",
+    "title": "Writing your first Django app",
+    "provider": "Django Software Foundation",
+    "url": "https://docs.djangoproject.com/en/stable/intro/tutorial01/",
+    "skills": [
+      "django",
+      "python"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Official multi-part tutorial building a polls app with models, views and tests."
+  },
+  {
+    "id": "ms-api-design",
+    "title": "Web API design best practices",
+    "provider": "Microsoft Learn",
+    "url": "https://learn.microsoft.com/en-us/azure/architecture/best-practices/api-design",
+    "skills": [
+      "rest-api"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "article",
+    "summary": "Practical guidance on resource naming, versioning, pagination and HTTP semantics."
+  },
+  {
+    "id": "sqlbolt",
+    "title": "SQLBolt interactive lessons",
+    "provider": "SQLBolt",
+    "url": "https://sqlbolt.com/",
+    "skills": [
+      "sql"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "interactive",
+    "summary": "Short interactive exercises covering SELECT, joins, aggregates and updates."
+  },
+  {
+    "id": "select-star-sql",
+    "title": "Select Star SQL",
+    "provider": "Select Star SQL",
+    "url": "https://selectstarsql.com/",
+    "skills": [
+      "sql",
+      "data-analysis"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "interactive",
+    "summary": "Interactive book teaching analytical SQL on a real dataset."
+  },
+  {
+    "id": "postgres-tutorial",
+    "title": "PostgreSQL Tutorial (official docs)",
+    "provider": "PostgreSQL Global Development Group",
+    "url": "https://www.postgresql.org/docs/current/tutorial.html",
+    "skills": [
+      "postgresql",
+      "sql"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Official introduction to PostgreSQL concepts, SQL and advanced features."
+  },
+  {
+    "id": "pgvector",
+    "title": "pgvector: vector similarity search for Postgres",
+    "provider": "pgvector",
+    "url": "https://github.com/pgvector/pgvector",
+    "skills": [
+      "vector-database",
+      "postgresql"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Store embeddings in Postgres and query them with HNSW or IVFFlat indexes."
+  },
+  {
+    "id": "kafka-quickstart",
+    "title": "Apache Kafka Quickstart",
+    "provider": "Apache Software Foundation",
+    "url": "https://kafka.apache.org/quickstart",
+    "skills": [
+      "kafka",
+      "data-engineering"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Run Kafka locally, create topics, and produce and consume events."
+  },
+  {
+    "id": "pro-git",
+    "title": "Pro Git (book)",
+    "provider": "Scott Chacon and Ben Straub",
+    "url": "https://git-scm.com/book/en/v2",
+    "skills": [
+      "git"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "book",
+    "summary": "The standard Git book: branching, merging, rebasing and collaboration workflows."
+  },
+  {
+    "id": "learn-git-branching",
+    "title": "Learn Git Branching",
+    "provider": "learngitbranching.js.org",
+    "url": "https://learngitbranching.js.org/",
+    "skills": [
+      "git"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "interactive",
+    "summary": "Visual, interactive puzzles for branching, rebasing and remote workflows."
+  },
+  {
+    "id": "linux-command-line",
+    "title": "The Linux Command Line (book)",
+    "provider": "William Shotts",
+    "url": "https://linuxcommand.org/tlcl.php",
+    "skills": [
+      "linux"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "book",
+    "summary": "Free book on the shell, file system, permissions, processes and scripting."
+  },
+  {
+    "id": "docker-get-started",
+    "title": "Docker: Get started",
+    "provider": "Docker",
+    "url": "https://docs.docker.com/get-started/",
+    "skills": [
+      "docker"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Official guide to images, containers, Dockerfiles and Compose."
+  },
+  {
+    "id": "k8s-basics",
+    "title": "Learn Kubernetes Basics",
+    "provider": "Kubernetes",
+    "url": "https://kubernetes.io/docs/tutorials/kubernetes-basics/",
+    "skills": [
+      "kubernetes"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "interactive",
+    "summary": "Official tutorial: deploy, expose, scale and update an app on a cluster."
+  },
+  {
+    "id": "terraform-tutorials",
+    "title": "Terraform tutorials",
+    "provider": "HashiCorp",
+    "url": "https://developer.hashicorp.com/terraform/tutorials",
+    "skills": [
+      "terraform",
+      "aws",
+      "azure",
+      "gcp"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "course",
+    "summary": "Official hands-on tutorials for infrastructure as code on major clouds."
+  },
+  {
+    "id": "github-actions-docs",
+    "title": "GitHub Actions documentation",
+    "provider": "GitHub",
+    "url": "https://docs.github.com/en/actions",
+    "skills": [
+      "ci-cd",
+      "git"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Build CI/CD workflows that test, build and deploy on every push."
+  },
+  {
+    "id": "aws-cloud-practitioner",
+    "title": "AWS Certified Cloud Practitioner",
+    "provider": "Amazon Web Services",
+    "url": "https://aws.amazon.com/certification/certified-cloud-practitioner/",
+    "skills": [
+      "aws"
+    ],
+    "level": "beginner",
+    "cost": "paid",
+    "format": "certification",
+    "summary": "Entry-level AWS certification; AWS Skill Builder has free prep material."
+  },
+  {
+    "id": "azure-fundamentals",
+    "title": "Microsoft Certified: Azure Fundamentals (AZ-900)",
+    "provider": "Microsoft Learn",
+    "url": "https://learn.microsoft.com/en-us/credentials/certifications/azure-fundamentals/",
+    "skills": [
+      "azure"
+    ],
+    "level": "beginner",
+    "cost": "paid",
+    "format": "certification",
+    "summary": "Entry-level Azure certification with a free Microsoft Learn study path."
+  },
+  {
+    "id": "gcp-digital-leader",
+    "title": "Google Cloud Digital Leader",
+    "provider": "Google Cloud",
+    "url": "https://cloud.google.com/learn/certification/cloud-digital-leader",
+    "skills": [
+      "gcp"
+    ],
+    "level": "beginner",
+    "cost": "paid",
+    "format": "certification",
+    "summary": "Foundational Google Cloud certification covering core services and use cases."
+  },
+  {
+    "id": "opentelemetry-docs",
+    "title": "OpenTelemetry documentation",
+    "provider": "OpenTelemetry",
+    "url": "https://opentelemetry.io/docs/",
+    "skills": [
+      "observability"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Instrument services with traces, metrics and logs using the open standard."
+  },
+  {
+    "id": "owasp-top-ten",
+    "title": "OWASP Top 10",
+    "provider": "OWASP Foundation",
+    "url": "https://owasp.org/www-project-top-ten/",
+    "skills": [
+      "security"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "article",
+    "summary": "The most critical web application security risks and how to prevent them."
+  },
+  {
+    "id": "pytest-getting-started",
+    "title": "pytest: Get started",
+    "provider": "pytest",
+    "url": "https://docs.pytest.org/en/stable/getting-started.html",
+    "skills": [
+      "testing",
+      "python"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Write and run Python tests with fixtures, parametrization and assertions."
+  },
+  {
+    "id": "system-design-primer",
+    "title": "The System Design Primer",
+    "provider": "Donne Martin (GitHub)",
+    "url": "https://github.com/donnemartin/system-design-primer",
+    "skills": [
+      "system-design",
+      "distributed-systems",
+      "interviewing"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Open-source guide to scalability, caching, databases and design interview practice."
+  },
+  {
+    "id": "ddia",
+    "title": "Designing Data-Intensive Applications",
+    "provider": "Martin Kleppmann (O'Reilly)",
+    "url": "https://dataintensive.net/",
+    "skills": [
+      "distributed-systems",
+      "system-design",
+      "data-engineering"
+    ],
+    "level": "advanced",
+    "cost": "paid",
+    "format": "book",
+    "summary": "Deep treatment of replication, partitioning, transactions and stream processing."
+  },
+  {
+    "id": "mit-6006",
+    "title": "Introduction to Algorithms (MIT 6.006)",
+    "provider": "MIT OpenCourseWare",
+    "url": "https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/",
+    "skills": [
+      "algorithms"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "course",
+    "summary": "Full MIT course with lectures and problem sets on core algorithms and data structures."
+  },
+  {
+    "id": "neetcode",
+    "title": "NeetCode roadmap",
+    "provider": "NeetCode",
+    "url": "https://neetcode.io/",
+    "skills": [
+      "algorithms",
+      "interviewing"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "interactive",
+    "summary": "Curated coding interview problems grouped by pattern, with video solutions."
+  },
+  {
+    "id": "tech-interview-handbook",
+    "title": "Tech Interview Handbook",
+    "provider": "Yangshun Tay",
+    "url": "https://www.techinterviewhandbook.org/",
+    "skills": [
+      "interviewing",
+      "algorithms"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Free guide to coding, system design and behavioral interviews, including resumes."
+  },
+  {
+    "id": "pandas-getting-started",
+    "title": "pandas: Getting started",
+    "provider": "pandas",
+    "url": "https://pandas.pydata.org/docs/getting_started/index.html",
+    "skills": [
+      "pandas",
+      "python",
+      "data-analysis"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Official intro tutorials for loading, filtering, reshaping and plotting data."
+  },
+  {
+    "id": "kaggle-learn",
+    "title": "Kaggle Learn",
+    "provider": "Kaggle",
+    "url": "https://www.kaggle.com/learn",
+    "skills": [
+      "python",
+      "pandas",
+      "machine-learning",
+      "sql",
+      "data-analysis"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "course",
+    "summary": "Short hands-on courses in Python, pandas, SQL, ML and data visualization."
+  },
+  {
+    "id": "khan-statistics",
+    "title": "Statistics and probability",
+    "provider": "Khan Academy",
+    "url": "https://www.khanacademy.org/math/statistics-probability",
+    "skills": [
+      "statistics"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "course",
+    "summary": "Free course on distributions, inference, hypothesis tests and regression."
+  },
+  {
+    "id": "google-data-analytics",
+    "title": "Google Data Analytics Professional Certificate",
+    "provider": "Google (Coursera)",
+    "url": "https://www.coursera.org/professional-certificates/google-data-analytics",
+    "skills": [
+      "data-analysis",
+      "sql",
+      "excel",
+      "tableau"
+    ],
+    "level": "beginner",
+    "cost": "paid",
+    "format": "certification",
+    "summary": "Entry-level analytics program covering spreadsheets, SQL, Tableau and R."
+  },
+  {
+    "id": "powerbi-pl300",
+    "title": "Microsoft Certified: Power BI Data Analyst (PL-300)",
+    "provider": "Microsoft Learn",
+    "url": "https://learn.microsoft.com/en-us/credentials/certifications/data-analyst-associate/",
+    "skills": [
+      "power-bi",
+      "data-analysis"
+    ],
+    "level": "intermediate",
+    "cost": "paid",
+    "format": "certification",
+    "summary": "Power BI certification with a free Microsoft Learn study path."
+  },
+  {
+    "id": "tableau-training",
+    "title": "Tableau free training videos",
+    "provider": "Tableau",
+    "url": "https://www.tableau.com/learn/training",
+    "skills": [
+      "tableau",
+      "data-analysis"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "course",
+    "summary": "Official videos on connecting data, building views and dashboards."
+  },
+  {
+    "id": "excel-training",
+    "title": "Excel help and learning",
+    "provider": "Microsoft Support",
+    "url": "https://support.microsoft.com/en-us/excel",
+    "skills": [
+      "excel"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Official Excel training on formulas, PivotTables, charts and data tools."
+  },
+  {
+    "id": "de-zoomcamp",
+    "title": "Data Engineering Zoomcamp",
+    "provider": "DataTalks.Club",
+    "url": "https://github.com/DataTalksClub/data-engineering-zoomcamp",
+    "skills": [
+      "data-engineering",
+      "docker",
+      "terraform",
+      "spark",
+      "kafka",
+      "airflow"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "course",
+    "summary": "Free project-based course: pipelines, warehousing, batch and streaming."
+  },
+  {
+    "id": "dbt-learn",
+    "title": "dbt Learn",
+    "provider": "dbt Labs",
+    "url": "https://learn.getdbt.com/",
+    "skills": [
+      "dbt",
+      "sql",
+      "data-engineering"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "course",
+    "summary": "Official free courses on dbt models, tests, sources and documentation."
+  },
+  {
+    "id": "spark-quickstart",
+    "title": "Spark Quick Start",
+    "provider": "Apache Software Foundation",
+    "url": "https://spark.apache.org/docs/latest/quick-start.html",
+    "skills": [
+      "spark",
+      "data-engineering"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Official intro to Spark's DataFrame API with Python, Scala and Java."
+  },
+  {
+    "id": "airflow-tutorial",
+    "title": "Airflow tutorials",
+    "provider": "Apache Software Foundation",
+    "url": "https://airflow.apache.org/docs/apache-airflow/stable/tutorial/index.html",
+    "skills": [
+      "airflow",
+      "data-engineering"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Official tutorials for writing, scheduling and testing DAGs."
+  },
+  {
+    "id": "google-ml-crash-course",
+    "title": "Machine Learning Crash Course",
+    "provider": "Google for Developers",
+    "url": "https://developers.google.com/machine-learning/crash-course",
+    "skills": [
+      "machine-learning"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "course",
+    "summary": "Fast-paced intro to regression, classification, embeddings and ML practice."
+  },
+  {
+    "id": "ml-specialization",
+    "title": "Machine Learning Specialization",
+    "provider": "DeepLearning.AI and Stanford (Coursera)",
+    "url": "https://www.coursera.org/specializations/machine-learning-introduction",
+    "skills": [
+      "machine-learning",
+      "python"
+    ],
+    "level": "beginner",
+    "cost": "paid",
+    "format": "course",
+    "summary": "Andrew Ng's foundational ML program: supervised, unsupervised and recommenders."
+  },
+  {
+    "id": "dl-specialization",
+    "title": "Deep Learning Specialization",
+    "provider": "DeepLearning.AI (Coursera)",
+    "url": "https://www.coursera.org/specializations/deep-learning",
+    "skills": [
+      "deep-learning",
+      "machine-learning"
+    ],
+    "level": "intermediate",
+    "cost": "paid",
+    "format": "course",
+    "summary": "Neural networks, CNNs, sequence models and practical training advice."
+  },
+  {
+    "id": "fastai-course",
+    "title": "Practical Deep Learning for Coders",
+    "provider": "fast.ai",
+    "url": "https://course.fast.ai/",
+    "skills": [
+      "deep-learning",
+      "pytorch",
+      "machine-learning"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "course",
+    "summary": "Top-down, code-first deep learning course using PyTorch."
+  },
+  {
+    "id": "pytorch-tutorials",
+    "title": "PyTorch Tutorials",
+    "provider": "PyTorch",
+    "url": "https://pytorch.org/tutorials/",
+    "skills": [
+      "pytorch",
+      "deep-learning"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Official tutorials from tensors and autograd to training and deploying models."
+  },
+  {
+    "id": "sklearn-user-guide",
+    "title": "scikit-learn User Guide",
+    "provider": "scikit-learn",
+    "url": "https://scikit-learn.org/stable/user_guide.html",
+    "skills": [
+      "machine-learning",
+      "python"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Reference guide to classical ML models, pipelines and model evaluation."
+  },
+  {
+    "id": "hf-learn",
+    "title": "Hugging Face Learn courses",
+    "provider": "Hugging Face",
+    "url": "https://huggingface.co/learn",
+    "skills": [
+      "llm",
+      "nlp",
+      "deep-learning",
+      "agents"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "course",
+    "summary": "Free courses on transformers, LLMs, fine-tuning and AI agents."
+  },
+  {
+    "id": "dlai-short-courses",
+    "title": "DeepLearning.AI short courses",
+    "provider": "DeepLearning.AI",
+    "url": "https://www.deeplearning.ai/short-courses/",
+    "skills": [
+      "llm",
+      "rag",
+      "prompt-engineering",
+      "agents",
+      "evaluation",
+      "vector-database"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "course",
+    "summary": "One to two hour courses on RAG, agents, prompting, evals and LLM tooling."
+  },
+  {
+    "id": "langgraph-academy",
+    "title": "Introduction to LangGraph",
+    "provider": "LangChain Academy",
+    "url": "https://academy.langchain.com/courses/intro-to-langgraph",
+    "skills": [
+      "langgraph",
+      "agents",
+      "langchain"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "course",
+    "summary": "Build stateful agents with LangGraph: graphs, memory, human-in-the-loop."
+  },
+  {
+    "id": "claude-prompt-engineering",
+    "title": "Prompt engineering overview",
+    "provider": "Anthropic",
+    "url": "https://docs.claude.com/en/docs/build-with-claude/prompt-engineering/overview",
+    "skills": [
+      "prompt-engineering",
+      "llm"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Practical prompting techniques: clarity, examples, XML structure and chaining."
+  },
+  {
+    "id": "openai-cookbook",
+    "title": "OpenAI Cookbook",
+    "provider": "OpenAI",
+    "url": "https://cookbook.openai.com/",
+    "skills": [
+      "llm",
+      "rag",
+      "evaluation",
+      "vector-database"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Runnable examples for embeddings, retrieval, function calling and evals."
+  },
+  {
+    "id": "made-with-ml",
+    "title": "Made With ML",
+    "provider": "Goku Mohandas",
+    "url": "https://madewithml.com/",
+    "skills": [
+      "mlops",
+      "machine-learning",
+      "testing"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "course",
+    "summary": "Free course on designing, testing, deploying and iterating ML systems."
+  },
+  {
+    "id": "mlops-zoomcamp",
+    "title": "MLOps Zoomcamp",
+    "provider": "DataTalks.Club",
+    "url": "https://github.com/DataTalksClub/mlops-zoomcamp",
+    "skills": [
+      "mlops",
+      "docker",
+      "ci-cd"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "course",
+    "summary": "Free project-based course: experiment tracking, orchestration, deployment, monitoring."
+  },
+  {
+    "id": "mlflow-docs",
+    "title": "MLflow documentation",
+    "provider": "MLflow",
+    "url": "https://mlflow.org/docs/latest/index.html",
+    "skills": [
+      "mlops"
+    ],
+    "level": "intermediate",
+    "cost": "free",
+    "format": "docs",
+    "summary": "Track experiments, package models and manage a model registry."
+  },
+  {
+    "id": "scrum-guide",
+    "title": "The Scrum Guide",
+    "provider": "Ken Schwaber and Jeff Sutherland",
+    "url": "https://scrumguides.org/scrum-guide.html",
+    "skills": [
+      "agile"
+    ],
+    "level": "beginner",
+    "cost": "free",
+    "format": "article",
+    "summary": "The official short definition of Scrum roles, events and artifacts."
+  },
+  {
+    "id": "google-ux-design",
+    "title": "Google UX Design Professional Certificate",
+    "provider": "Google (Coursera)",
+    "url": "https://www.coursera.org/professional-certificates/google-ux-design",
+    "skills": [
+      "ux-design"
+    ],
+    "level": "beginner",
+    "cost": "paid",
+    "format": "certification",
+    "summary": "Entry-level UX program: research, wireframes, prototypes and a portfolio."
+  },
+  {
+    "id": "google-project-management",
+    "title": "Google Project Management Professional Certificate",
+    "provider": "Google (Coursera)",
+    "url": "https://www.coursera.org/professional-certificates/google-project-management",
+    "skills": [
+      "project-management",
+      "agile"
+    ],
+    "level": "beginner",
+    "cost": "paid",
+    "format": "certification",
+    "summary": "Entry-level program on project planning, execution, risk and Agile."
+  }
+]

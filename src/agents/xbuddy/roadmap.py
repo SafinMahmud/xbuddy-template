@@ -9,7 +9,8 @@ Quality criteria (validate_roadmap) every delivered roadmap must meet:
   Consistency   no contradiction with confirmed data: years of experience, the
              work arrangement, and whether a requirement is must-have or
              nice-to-have.
-  Safety     no placeholder text and no salary figures.
+  Safety     no placeholder text, no salary figures, and no links outside the
+             curated learning-resource library (or the user's own posting links).
 The fallback roadmap has the required structure and grounding by construction.
 
 Inputs are checked too. missing_inputs lists what was not collected, and the
@@ -21,6 +22,7 @@ extracted data disagrees with a confirmed summary; the confirmed summary wins
 import re
 
 from .enums import SectionID, SectionStatus, WorkType
+from .knowledge import resources_for_requirements, strip_unknown_links, unknown_links
 from .models import JobBuddyData, SectionState
 from .prompts import get_section_template
 
@@ -52,6 +54,11 @@ Rules:
   the years of experience asked for), still list it, but mark it "already met"
   instead of treating it as a gap.
 - Write the checklist as Markdown checkboxes, one per line: "- [ ] ..."
+- In "Learning plan", recommend courses, docs and certifications ONLY from the
+  LEARNING RESOURCES list below, as Markdown links with the exact URL given. Tie
+  each one to the gap it closes. If no listed resource fits a gap, suggest a small
+  hands-on project instead. Never add any other link, and never name a course or
+  certification that is not on the list.
 - No placeholders such as [TBD]. No salary or pay figures.
 
 Keep it concise, specific, and encouraging.
@@ -222,6 +229,29 @@ def reconcile(section_states: dict[str, SectionState], user_data: JobBuddyData) 
     return user_data.model_copy(update={"profile": profile, "target_role": target})
 
 
+LEARNING_REQUIREMENTS = 6  # top requirements to retrieve learning resources for
+
+
+def learning_resources(user_data: JobBuddyData) -> list[tuple[str, list]]:
+    """Library resources for the most-demanded requirements, retrieved by skill tags
+    and BM25 (knowledge.retriever). Requirements with no match get nothing."""
+    names = [r.name for r in ranked_requirements(user_data)[:LEARNING_REQUIREMENTS]]
+    return resources_for_requirements(names)
+
+
+def learning_resources_block(user_data: JobBuddyData) -> str:
+    lines = []
+    for name, resources in learning_resources(user_data):
+        for resource in resources:
+            lines.append(f"- For {name}: {resource.as_line()}")
+    return "\n".join(lines)
+
+
+def allowed_links(user_data: JobBuddyData) -> set[str]:
+    """Links a roadmap may contain besides the library: the user's own postings."""
+    return {s.url for s in user_data.job_sources if s.url}
+
+
 def build_roadmap_input(section_states: dict[str, SectionState], user_data: JobBuddyData) -> str:
     parts = [
         f"{get_section_template(sid).name}:\n{text}"
@@ -230,6 +260,12 @@ def build_roadmap_input(section_states: dict[str, SectionState], user_data: JobB
     table = requirements_table(user_data)
     if table:
         parts.append("Extracted requirements (with source postings):\n" + table)
+    resources = learning_resources_block(user_data)
+    if resources:
+        parts.append(
+            "LEARNING RESOURCES (from JobBuddy's curated library, matched to the "
+            "requirements above; cite only these):\n" + resources
+        )
     missing = missing_inputs(section_states, user_data)
     if missing:
         parts.append(
@@ -262,6 +298,10 @@ def fallback_roadmap(section_states: dict[str, SectionState], user_data: JobBudd
         return confirmed.get(sid, "Not covered in this conversation.")
 
     gaps = requirements_table(user_data) or said(SectionID.SKILL_GAP)
+    learning = said(SectionID.SKILL_GAP)
+    resources = learning_resources_block(user_data)
+    if resources:
+        learning += "\n\nResources from JobBuddy's library:\n" + resources
     focus = [
         "Resume and LinkedIn refresh",
         "Start the first learning action",
@@ -282,14 +322,16 @@ def fallback_roadmap(section_states: dict[str, SectionState], user_data: JobBudd
         "## Where you are now", said(SectionID.BACKGROUND),
         "## What you're aiming for", said(SectionID.TARGET_ROLE),
         "## Skill gaps to close", gaps,
-        "## Learning plan", said(SectionID.SKILL_GAP),
+        "## Learning plan", learning,
         "## Application strategy", said(SectionID.APPLICATION_STRATEGY),
         "## Interview preparation", said(SectionID.INTERVIEW_PREP),
         "## 8-week plan", "\n".join(plan),
         "## This week's checklist",
         FALLBACK_CHECKLIST,
     ]
-    return "\n\n".join(parts)
+    # Confirmed summaries are the model's words; drop any link they carry that is
+    # not in the library, so the fallback passes the link check by construction.
+    return strip_unknown_links("\n\n".join(parts), allowed_links(user_data))
 
 # Models often emit typographic look-alikes (a non-breaking hyphen in "8-week", curly
 # apostrophes, en dashes, non-breaking spaces). The checks compare canonical text so
@@ -419,6 +461,8 @@ def validate_roadmap(roadmap: str, user_data: JobBuddyData) -> list[str]:
             problems.append(f"placeholder text: {placeholder}")
     if _MONEY.search(canonical(roadmap)):
         problems.append("contains salary or money figures")
+    for url in unknown_links(roadmap, allowed_links(user_data)):
+        problems.append(f"link not from the learning-resource library: {url}")
     return problems
 
 
