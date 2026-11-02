@@ -3,14 +3,6 @@
 #
 # DEMO ONLY. The service has no sign-in: anyone with the URL can use it, and anyone
 # who knows a thread id can read that thread. Set AUTH_SECRET before real use.
-databases:
-  # Durable conversation state. Free databases expire 30 days after creation.
-  - name: jobbuddy-db
-    plan: free
-    databaseName: jobbuddy
-    user: jobbuddy
-    ipAllowList: []  # no access from the internet, only from this service
-
 services:
   - type: web
     name: jobbuddy-api
@@ -32,13 +24,12 @@ services:
         value: "true"
       - key: LANGCHAIN_PROJECT
         value: jobbuddy
-      # Checkpoints go to Postgres over Render's private network, so threads
+      # Checkpoints go to an external Postgres (Neon free tier), so threads
       # survive sleep, restarts and redeploys. The local default is SQLite.
+      # Paste Neon's direct (non-pooler) connection URL into the dashboard.
       - key: DATABASE_TYPE
         value: postgres
       - key: POSTGRES_URL
-        fromDatabase:
-          name: jobbuddy-db
-          property: connectionString
+        sync: false
       # AUTH_SECRET is not set, so the demo is open to signed-out visitors.
       # Add it in the dashboard to require a bearer token on every API route.

@@ -515,18 +515,13 @@ def test_render_blueprint_commits_no_secrets():
             assert "value" not in item, f"{key} must not have a committed value"
 
 
-def test_render_blueprint_wires_durable_private_postgres():
+def test_render_blueprint_wires_external_postgres():
     blueprint = yaml.safe_load((REPO / "render.yaml").read_text())
-    (database,) = blueprint["databases"]
     env = {item["key"]: item for item in blueprint["services"][0]["envVars"]}
 
-    assert database["plan"] == "free"
-    assert database["ipAllowList"] == []  # not reachable from the internet
+    assert "databases" not in blueprint  # Postgres is hosted on Neon, not Render
     assert env["DATABASE_TYPE"]["value"] == "postgres"
-    assert env["POSTGRES_URL"]["fromDatabase"] == {
-        "name": database["name"],
-        "property": "connectionString",
-    }
+    assert env["POSTGRES_URL"] == {"key": "POSTGRES_URL", "sync": False}
     assert "SQLITE_DB_PATH" not in env
 
 
