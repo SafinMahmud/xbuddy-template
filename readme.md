@@ -35,6 +35,10 @@ application strategy, interview prep, an 8-week plan and this week's checklist.
 
 Postings are pasted as text, from any job site or careers page. One is enough.
 
+Learning suggestions come from a curated library of 67 courses, docs and
+certifications, retrieved by skill tags and BM25 (no embeddings). The roadmap may
+only link to resources from that library.
+
 ## How it works
 
 Every message runs one pass through a LangGraph state machine:
@@ -136,6 +140,7 @@ Deployment (Render for the API, Vercel for the app) is in
 
 ```bash
 uv run pytest tests/xbuddy -q                                   # every test runs without keys or network
+cd src && uv run python -m agents.xbuddy.knowledge.evaluation   # retrieval metrics for the learning library
 node frontend/scripts/smoke.mjs https://xbuddy-template.vercel.app --full   # signed-out, real model
 ```
 
@@ -151,6 +156,9 @@ and checks the roadmap comes back.
   behind the same tool loop the removed search used.
 - **Free model limits.** Groq's free tier has per-minute and per-day token limits.
   A long session can hit them; an optional `FALLBACK_MODEL` can take over.
+- **Learning library is hand-curated.** 67 resources, matched by keywords. Wording
+  outside the skill vocabulary can miss; embeddings would help once the library is
+  larger, at the cost of an embedding API or a model in memory.
 - **Quality checks are objective only.** A judge model or human rubric for tone and
   usefulness would be the next evaluation step.
 - **Free hosting.** Render's free Postgres expires after 30 days, and the API

@@ -57,6 +57,59 @@ user to confirm. Any section can be reopened from a later one (`modify`).
 | Reply prompt carries the real status of every section | `generate_reply` | The model walking ahead of the state and writing its own roadmap |
 | Extracted data must quote the user's own words or posting | `memory_updater` | Untraceable requirements and invented counts |
 | Roadmap checks: structure, grounding, completeness, contradictions | `implementation` | A roadmap that is malformed, ungrounded, or contradicts confirmed data |
+| Every link in the roadmap must come from the learning-resource library (or the user's own posting) | `implementation` | Invented courses and dead links |
+
+## Learning resources (retrieval)
+
+```mermaid
+flowchart LR
+    Q["posting text or<br/>requirement name"] --> T["skill tags<br/>(fixed vocabulary)"]
+    Q --> B["BM25 over title,<br/>summary and tags"]
+    T --> S[score and rank]
+    B --> S
+    KB[("learning_resources.json<br/>67 curated resources")] --> S
+    S --> SG["Skill Gap reply prompt"]
+    S --> RM["roadmap prompt and fallback"]
+```
+
+Suggesting courses is where a model invents the most: titles that don't exist and
+links that 404. JobBuddy retrieves from a small curated library instead, and the
+prompts allow only what was retrieved.
+
+- **Library:** `src/agents/xbuddy/knowledge/learning_resources.json`. Each entry has
+  skill tags, level, cost and format.
+- **Retrieval:** a resource is eligible only if it shares a skill tag with the query
+  (a fixed vocabulary that knows "k8s" is Kubernetes and that "react quickly" is not
+  React). BM25 then ranks the eligible ones. No embeddings, so no extra API calls,
+  no quota, and nothing heavy to load on Render. A requirement like "5 years of
+  experience" retrieves nothing rather than something irrelevant.
+- **Skill Gap:** the reply prompt gets one resource per skill named in the pasted
+  posting, gaps first and skills the user already has last.
+- **Roadmap:** the prompt gets resources for the top requirements and must cite only
+  those. `validate_roadmap` rejects any other link; the fallback roadmap lists the
+  resources and strips links the summaries carried.
+- **Evaluation:** two labeled sets, run with
+  `cd src && python -m agents.xbuddy.knowledge.evaluation [cases.json]`.
+
+  | Set | Cases | hit@3 | MRR | Negatives correct |
+  | --- | --- | --- | --- | --- |
+  | Development (`retrieval_eval.json`, written with the vocabulary) | 50 + 10 | 1.0 | 0.99 | 10 of 10 |
+  | Held out (`retrieval_eval_heldout.json`, 3 real postings), first run | 23 + 6 | 0.83 | 0.75 | 3 of 6 |
+  | Held out, after two structural fixes | 23 + 6 | 0.83 | 0.75 | 5 of 6 |
+
+  The two structural fixes improved only the negatives (3 to 5 of 6); hit@3 and MRR
+  did not change. After review, "retrieval" on its own no longer counts as RAG
+  ("a retrieval pipeline" is not RAG); two negative cases cover it, and the held-out
+  scores are unchanged.
+
+  The held-out run found a bug ("C#/.NET" was missed because a slash counted as part
+  of the word) and showed that letting a strong BM25 match through without a skill
+  tag returned wrong resources. Both were fixed without adding words from those
+  postings to the vocabulary. The remaining misses are vocabulary gaps ("AI coding
+  tools", "well-tested code", "distributed architectures"), which a new held-out set
+  should measure after they are added.
+- **Link check:** `cd src && python -m agents.xbuddy.knowledge.check_links` opens every
+  library link and lists any that fail.
 
 ## Deployment
 
@@ -81,4 +134,5 @@ sidebar draws.
 - Nodes: `src/agents/xbuddy/nodes/`
 - Section prompts and checklists: `src/agents/xbuddy/sections/`
 - Roadmap checks: `src/agents/xbuddy/roadmap.py`
+- Learning-resource library, retriever and evaluation: `src/agents/xbuddy/knowledge/`
 - End-to-end regressions for live bugs: `tests/xbuddy/test_e2e_regressions.py`

@@ -22,7 +22,9 @@ Steps:
 3. Compare the requirements with the user's confirmed skills.
 4. Present the gaps, strongest signal first (mentioned by the most postings).
 5. Agree on at least one concrete learning action (course, project, or
-   certification) for the most important gap.
+   certification) for the most important gap. Take courses, docs and
+   certifications from the LEARNING RESOURCES list when one is given, with
+   its title and link.
 
 Rules:
 - Never ask the user which skills they lack or feel less confident about. Gaps
@@ -32,6 +34,8 @@ Rules:
   ask for a posting. If the user has none, suggest copying one from any job
   site or company careers page.
 - Name the posting each gap comes from.
+- Never invent a course, certification or link. Only resources from the
+  LEARNING RESOURCES list may be linked.
 
 Completion criteria: gaps are tied to extracted requirements with source
 evidence, at least one learning action is chosen, and the user has confirmed.
