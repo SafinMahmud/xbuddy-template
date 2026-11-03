@@ -291,3 +291,92 @@ async def test_a_refused_confirmation_steers_the_next_reply_back_to_the_section(
     done = await graph.ainvoke({"messages": [HumanMessage("A Kubernetes course. Yes.")]}, cfg)
 
     assert sidebar(done)["current"] == "application_strategy"
+
+
+# --- the decision model says "stay" to a confirmation (local run, Nov 3) ----------------------
+
+# The exact decision the model returned, copied from the LangSmith trace: every checklist
+# item covered and a summary, but "stay" and no is_satisfied.
+STAYED_ON_CONFIRMATION = json.dumps({
+    "router_directive": "stay", "should_save_content": True,
+    "section_summary": "Job source: Insight - AI Engineer (remote). Gaps: C#/.NET, Azure, "
+                       "RAG with Azure AI Search. Learning action: Introduction to LangGraph.",
+    "covered_fields": ["job_sources", "requirements", "gaps", "learning_actions"],
+})
+GAP_SUMMARY = ("Gaps: C#/.NET, Azure, RAG. Learning action: Introduction to LangGraph. "
+               "Do you agree with this gap list and the suggested learning action? Please confirm.")
+
+
+async def skill_gap_waiting_for_confirmation(graph, cfg, last_reply=GAP_SUMMARY):
+    state = completed_state(should_generate_final_output=False, router_directive="stay")
+    for sid in ("skill_gap", "application_strategy", "interview_prep"):
+        state["section_states"][sid] = state["section_states"][sid].model_copy(
+            update={"status": SectionStatus.PENDING, "confirmed_summary": None})
+    state["section_states"]["skill_gap"] = state["section_states"]["skill_gap"].model_copy(
+        update={"status": SectionStatus.IN_PROGRESS})
+    state["current_section"] = SectionID.SKILL_GAP
+    posting = HumanMessage("Insight - AI Engineer\n" + "Requirements: RAG, C#/.NET, Azure. " * 20)
+    state["messages"] = [posting, AIMessage(last_reply)]
+    state["short_memory"] = list(state["messages"])
+    await graph.aupdate_state(cfg, state)
+
+
+@pytest.mark.asyncio
+async def test_a_confirmation_that_adds_something_is_steered_back_not_left_behind(monkeypatch):
+    """Live bug: 'Yes, confirmed. I'll start with the LangGraph course and the RAG short
+    course' got 'stay' from the decision while the reply moved on to Application
+    strategy. Nothing steered back, so the sidebar sat on Skill gap for the rest of
+    the run. Now the next reply is told to show the summary again, and a plain 'yes'
+    to that advances even if the model says 'stay' once more."""
+    from agents.xbuddy.agent import graph
+
+    class Recording(FakeListChatModel):
+        seen: list = []
+
+        async def ainvoke(self, input, config=None, **kwargs):
+            Recording.seen.append(input[0].content)
+            return await super().ainvoke(input, config, **kwargs)
+
+    cfg = {"configurable": {"thread_id": "e2e-stay-on-confirm", "user_id": 1}}
+    await skill_gap_waiting_for_confirmation(graph, cfg)
+
+    # 1. The confirmation adds a second course. The model stays; the reply runs ahead.
+    use(monkeypatch, reply_mod, FakeListChatModel(responses=["Great! How are you applying today?"]))
+    use(monkeypatch, decision_mod, FakeListChatModel(responses=[STAYED_ON_CONFIRMATION]))
+    first = await graph.ainvoke({"messages": [HumanMessage(
+        "Yes, confirmed. I'll start with the LangGraph course and the RAG short course this month."
+    )]}, cfg)
+    assert sidebar(first)["current"] == "skill_gap"
+    assert "added or changed something" in first["blocked_next"]
+
+    # 2. The next reply is told to go back and show the summary again.
+    Recording.seen = []
+    use(monkeypatch, reply_mod, Recording(responses=[GAP_SUMMARY.replace(
+        "Learning action:", "Learning actions: LangGraph course and the RAG short course;")]))
+    use(monkeypatch, decision_mod, FakeListChatModel(responses=[STAYED_ON_CONFIRMATION]))
+    await graph.ainvoke({"messages": [HumanMessage("LinkedIn and careers pages, 10 a week.")]}, cfg)
+    assert "IMPORTANT, DO THIS FIRST" in Recording.seen[-1]
+    assert "added or changed something" in Recording.seen[-1]
+
+    # 3. A plain 'yes' to that summary advances, even though the model says 'stay' again.
+    use(monkeypatch, reply_mod, FakeListChatModel(responses=["Thanks! How are you applying today?"]))
+    use(monkeypatch, decision_mod, FakeListChatModel(responses=[STAYED_ON_CONFIRMATION]))
+    use(monkeypatch, extraction_mod, FakeListChatModel(responses=['{"job_sources": [], "requirements": []}'] * 3))
+    done = await graph.ainvoke({"messages": [HumanMessage("yes")]}, cfg)
+    assert sidebar(done)["current"] == "application_strategy"
+
+
+@pytest.mark.asyncio
+async def test_a_plain_yes_without_a_confirmation_question_is_not_accepted(monkeypatch):
+    """The 'stay' is only overridden when the user answers a confirmation question."""
+    from agents.xbuddy.agent import graph
+
+    cfg = {"configurable": {"thread_id": "e2e-stay-no-question", "user_id": 1}}
+    await skill_gap_waiting_for_confirmation(
+        graph, cfg, last_reply="Here are the gaps: C#/.NET, Azure, RAG. Which one first?")
+
+    use(monkeypatch, reply_mod, FakeListChatModel(responses=["Noted."]))
+    use(monkeypatch, decision_mod, FakeListChatModel(responses=[STAYED_ON_CONFIRMATION]))
+    result = await graph.ainvoke({"messages": [HumanMessage("yes")]}, cfg)
+    assert sidebar(result)["current"] == "skill_gap"
+    assert result["blocked_next"] is None

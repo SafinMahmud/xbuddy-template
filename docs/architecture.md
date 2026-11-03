@@ -53,6 +53,7 @@ user to confirm. Any section can be reopened from a later one (`modify`).
 | The decision sees the whole section (saved draft plus recent messages), not only the last exchange | `generate_decision` | A confirmed section staying stuck because earlier answers were out of view |
 | Skill gap needs a real pasted posting | `generate_decision` | Gaps built from self-assessment |
 | No `next` into the roadmap while the reply asks a question | `generate_decision` | The roadmap arriving before the user answers |
+| A plain "yes" to a confirmation prompt with the checklist complete advances even if the model says "stay"; a "yes" that adds something sends the next reply back to re-confirm | `generate_decision` | The section stuck while the chat ran ahead after the model answered "stay" to a confirmation |
 | Reply prompt carries the real status of every section | `generate_reply` | The model walking ahead of the state and writing its own roadmap |
 | Extracted data must quote the user's own words or posting | `memory_updater` | Untraceable requirements and invented counts |
 | Roadmap checks: structure, grounding, completeness, contradictions | `implementation` | A roadmap that is malformed, ungrounded, or contradicts confirmed data |
