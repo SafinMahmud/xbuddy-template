@@ -93,9 +93,14 @@ prompts allow only what was retrieved.
 
   | Set | Cases | hit@3 | MRR | Negatives correct |
   | --- | --- | --- | --- | --- |
-  | Development (`retrieval_eval.json`, written with the vocabulary) | 50 + 8 | 1.0 | 0.99 | 8 of 8 |
+  | Development (`retrieval_eval.json`, written with the vocabulary) | 50 + 10 | 1.0 | 0.99 | 10 of 10 |
   | Held out (`retrieval_eval_heldout.json`, 3 real postings), first run | 23 + 6 | 0.83 | 0.75 | 3 of 6 |
   | Held out, after two structural fixes | 23 + 6 | 0.83 | 0.75 | 5 of 6 |
+
+  The two structural fixes improved only the negatives (3 to 5 of 6); hit@3 and MRR
+  did not change. After review, "retrieval" on its own no longer counts as RAG
+  ("a retrieval pipeline" is not RAG); two negative cases cover it, and the held-out
+  scores are unchanged.
 
   The held-out run found a bug ("C#/.NET" was missed because a slash counted as part
   of the word) and showed that letting a strong BM25 match through without a skill

@@ -136,6 +136,28 @@ def test_held_out_postings_do_not_regress():
     assert report["negatives"] >= 0.8, report["false_hits"]
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Build reliable retrieval pipelines for our search ranking service",
+        "Fast data retrieval from internal archives",
+        "Document retrieval and indexing",
+    ],
+)
+def test_retrieval_on_its_own_is_not_rag(text):
+    """Moss review on PR #15: 'retrieval' alone mapped to the RAG tag, so ordinary
+    retrieval work made RAG courses eligible."""
+    assert "rag" not in detect_tags(text)
+    assert not any("rag" in h.matched_tags for h in retrieve(text))
+
+
+@pytest.mark.parametrize(
+    "text", ["RAG pipelines", "retrieval-augmented generation", "Retrieval augmented generation"]
+)
+def test_rag_is_still_recognized(text):
+    assert "rag" in detect_tags(text)
+
+
 def test_a_strong_keyword_match_without_a_skill_is_not_returned():
     assert retrieve("quickly learning in ambiguous, fast-paced environments") == []
     assert retrieve("Microsoft Power Platform (Power Apps, Power Automate)") == []

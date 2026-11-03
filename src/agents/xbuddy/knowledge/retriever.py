@@ -112,8 +112,9 @@ SKILL_PHRASES: dict[str, list[str]] = {
     "llm": ["llm", "llms", "large language model", "large language models", "genai",
             "gen ai", "generative ai", "gpt", "openai", "anthropic", "claude", "gemini",
             "fine-tuning", "fine tuning", "foundation models"],
+    # Not "retrieval" alone: "data retrieval" or "a retrieval pipeline" is not RAG.
     "rag": ["rag", "retrieval augmented generation", "retrieval-augmented generation",
-            "retrieval augmented", "retrieval-augmented", "retrieval"],
+            "retrieval augmented", "retrieval-augmented"],
     "prompt-engineering": ["prompt engineering", "prompting", "prompt design", "prompts"],
     "agents": ["agents", "agentic", "ai agents", "tool calling", "function calling",
                "multi-agent", "autonomous agents"],
