@@ -14,6 +14,12 @@ code and never trusted blindly:
   - When a "next" is refused, the reason is stored in `blocked_next`, and the
     next reply is told to deal with it first (see generate_reply), so the chat
     goes back to the open section instead of running ahead of the sidebar.
+  - The model can also answer "stay" to a clear confirmation. Live run (Nov 3):
+    every checklist item covered, a summary, the user said "Yes, confirmed. I'll
+    start with ...", and the decision stayed twice while the reply moved on.
+    Two code rules handle it (accept_plain_confirmation, unaccepted_confirmation):
+    a whole-message "yes" to a confirmation question with the checklist complete
+    advances; a "yes" that adds something is steered back to re-confirm.
   - A "next" that would finish the conversation (no unfinished section left)
     is refused while the reply is still asking the user a question, so the
     roadmap never arrives before they answer.
@@ -197,16 +203,29 @@ _CONFIRM_QUESTION = re.compile(
     r"\b(?:is|are)\b.*\b(?:correct|right|accurate)\b"
     r"|\b(?:look|sound)s?\b.*\b(?:right|good|correct|ok(?:ay)?)\b"
     r"|\bconfirm\b"
-    r"|\banything\b.*\b(?:change|adjust|add|correct|fix|update)\b",
+    r"|\banything\b.*\b(?:change|adjust|add|correct|fix|update)\b"
+    r"|\bdo you agree\b",
     re.IGNORECASE,
 )
 _QUESTIONS = re.compile(r"[^.!?\n]*\?")
+# The same request written as an instruction, with no question mark. The live replies
+# end with "Please confirm or let me know any correction." and "Please confirm this
+# summary or let me know any changes."
+_CONFIRM_REQUEST = re.compile(
+    r"\bplease confirm\b|\bconfirm (?:this|that|it|the|whether|if)\b|\blet me know if (?:this|that|it) "
+    r"(?:is|looks) (?:right|correct|good)\b",
+    re.IGNORECASE,
+)
 
 
 def is_confirmation_question(text: str) -> bool:
     """True when the message asks the user to confirm the summary ("Is this correct?",
-    "Does this look right?", "Anything to change?"), not just any question."""
-    return any(_CONFIRM_QUESTION.search(q) for q in _QUESTIONS.findall(text or ""))
+    "Does this look right?", "Anything to change?", "Do you agree ...?", or the
+    instruction "Please confirm ..."), not just any question."""
+    text = text or ""
+    return bool(_CONFIRM_REQUEST.search(text)) or any(
+        _CONFIRM_QUESTION.search(q) for q in _QUESTIONS.findall(text)
+    )
 
 
 def asked_to_confirm(state: XBuddyState) -> bool:
@@ -244,6 +263,66 @@ def fill_satisfaction(
     ):
         return decision.model_copy(update={"is_satisfied": True})
     return decision
+
+
+# A message that starts by confirming, whether or not it adds something after:
+# "Yes, confirmed. I'll start with the LangGraph course", "I confirm the gaps".
+_CONFIRM_START = re.compile(
+    r"^\s*(?:yes|yep|yeah|yup|confirm(?:ed)?|i confirm|correct|looks good|sounds good)\b",
+    re.IGNORECASE,
+)
+
+
+def starts_with_confirmation(text: str) -> bool:
+    return bool(_CONFIRM_START.match((text or "").replace("\u2019", "'")))
+
+
+def accept_plain_confirmation(
+    decision: ChatAgentDecision, current: SectionID, user_text: str, confirmation_asked: bool
+) -> ChatAgentDecision:
+    """A 'stay' becomes 'next' when the user's whole message is a plain 'yes' that
+    answers a confirmation question, and the decision itself reports a summary and
+    every checklist item covered. Same tight boundary as fill_satisfaction; an
+    explicit is_satisfied False is respected. The usual guardrails still run after."""
+    if (
+        decision.router_directive == RouterDirective.STAY.value
+        and decision.is_satisfied is not False
+        and confirmation_asked
+        and is_plain_confirmation(user_text)
+        and (decision.section_summary or "").strip()
+        and not missing_required_fields(decision, current)
+    ):
+        logger.info("generate_decision: stay accepted as next (plain confirmation, checklist complete)")
+        return decision.model_copy(
+            update={"router_directive": RouterDirective.NEXT.value, "is_satisfied": True}
+        )
+    return decision
+
+
+def unaccepted_confirmation(
+    decision: ChatAgentDecision, current: SectionID, user_text: str, confirmation_asked: bool
+) -> str | None:
+    """Why a confirmation was not accepted, for the next reply, or None.
+
+    Only when the user answered a confirmation question by confirming and the
+    section still stays open. The reply has usually already moved on to the next
+    section by then, so without this the chat runs ahead of the sidebar."""
+    if (
+        decision.router_directive != RouterDirective.STAY.value
+        or decision.is_satisfied is False
+        or not confirmation_asked
+        or not starts_with_confirmation(user_text)
+    ):
+        return None
+    missing = missing_required_fields(decision, current)
+    if missing:
+        return "these details are still missing: " + ", ".join(missing)
+    if not (decision.section_summary or "").strip():
+        return "no summary of this section was shown yet"
+    return (
+        "the user's confirmation also added or changed something, so the updated "
+        "summary has to be shown with that included and confirmed with a plain yes"
+    )
 
 
 def apply_guardrails(decision: ChatAgentDecision, current: SectionID) -> ChatAgentDecision:
@@ -307,10 +386,12 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
             response = await get_chat_model(config).ainvoke(
                 [SystemMessage(system), HumanMessage(transcript)], decision_config
             )
+            user_text, confirmation_asked = last_user_text(state), asked_to_confirm(state)
             proposed = fill_satisfaction(
-                parse_decision(str(response.content)),
-                last_user_text(state),
-                asked_to_confirm(state),
+                parse_decision(str(response.content)), user_text, confirmation_asked
+            )
+            proposed = accept_plain_confirmation(
+                proposed, current, user_text, confirmation_asked
             )
             decision = apply_guardrails(proposed, current)
             if (
@@ -347,6 +428,12 @@ async def generate_decision_node(state: XBuddyState, config: RunnableConfig) -> 
                     bool((proposed.section_summary or "").strip()),
                     section_has_posting(state) if current == SectionID.SKILL_GAP else "n/a",
                 )
+            else:
+                blocked = unaccepted_confirmation(
+                    decision, current, user_text, confirmation_asked
+                )
+                if blocked:
+                    logger.info("generate_decision: confirmation not accepted (%s)", blocked)
         except Exception as exc:  # noqa: BLE001
             # Any failure (malformed output or provider error) falls back to "stay"
             # rather than crashing the turn.

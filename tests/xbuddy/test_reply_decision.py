@@ -470,6 +470,11 @@ from agents.xbuddy.nodes.generate_decision import is_confirmation_question  # no
     "Can you confirm this summary?",
     "Anything you'd like to change?",
     "Is there anything to adjust before we move on?",
+    # Live wording (Nov 3): the request is an instruction with no question mark.
+    ("Do you agree with this gap list and the suggested learning action? Please confirm "
+     "or let me know any correction."),
+    "Please confirm this summary or let me know any changes.",
+    "Let me know if this looks right.",
 ])
 def test_confirmation_prompts_are_recognized(text):
     assert is_confirmation_question(text)
@@ -484,6 +489,8 @@ def test_confirmation_prompts_are_recognized(text):
     "Would a good course help?",
     "Is Toronto your only city?",
     "Here is your summary.",
+    "Once you confirm, we'll move on.",
+    "Do you want to agree on a weekly target first?",
 ])
 def test_unrelated_questions_are_not_confirmation_prompts(text):
     assert not is_confirmation_question(text)
@@ -497,3 +504,65 @@ async def test_yes_to_an_unrelated_question_after_a_summary_does_not_advance(mon
     messages = [AIMessage("Summary: backend dev, 3 years. Would you like me to suggest some courses?"),
                 HumanMessage("yes"), AIMessage("Sure, here are two.")]
     assert (await generate_decision_node(base_state(messages=messages), CONFIG))["router_directive"] == "stay"
+
+
+# --- a 'stay' answer to a clear confirmation (local run, Nov 3) -------------------------------
+
+from agents.xbuddy.models import ChatAgentDecision
+from agents.xbuddy.nodes.generate_decision import (
+    accept_plain_confirmation,
+    unaccepted_confirmation,
+)
+
+SKILL_GAP_FIELDS = get_section_template(SectionID.SKILL_GAP).required_fields
+
+
+def stayed(**update):
+    base = {"router_directive": "stay", "section_summary": "Gaps and a course",
+            "covered_fields": list(SKILL_GAP_FIELDS)}
+    return ChatAgentDecision(**{**base, **update})
+
+
+def test_plain_yes_to_a_confirmation_question_with_the_checklist_complete_advances():
+    decision = accept_plain_confirmation(stayed(), SectionID.SKILL_GAP, "Yes, that's right!", True)
+    assert decision.router_directive == "next" and decision.is_satisfied is True
+
+
+@pytest.mark.parametrize(
+    "decision, text, asked",
+    [
+        (stayed(), "yes", False),                                          # no confirmation question
+        (stayed(), "Yes, but add the RAG course", True),                   # not a plain yes
+        (stayed(covered_fields=["job_sources", "requirements"]), "yes", True),  # checklist incomplete
+        (stayed(section_summary=None), "yes", True),                       # no summary
+        (stayed(is_satisfied=False), "yes", True),                         # model says not satisfied
+    ],
+)
+def test_stay_is_kept_outside_the_tight_boundary(decision, text, asked):
+    assert accept_plain_confirmation(decision, SectionID.SKILL_GAP, text, asked).router_directive == "stay"
+
+
+@pytest.mark.parametrize(
+    "decision, text, expected",
+    [
+        (stayed(), "Yes, confirmed. I'll start with the LangGraph course too.", "added or changed"),
+        (stayed(), "I confirm the gaps, and I'd like a second course", "added or changed"),
+        (stayed(covered_fields=["job_sources"]), "Yes, looks good",
+         "still missing: requirements, gaps, learning_actions"),
+    ],
+)
+def test_an_unaccepted_confirmation_gets_a_reason(decision, text, expected):
+    assert expected in unaccepted_confirmation(decision, SectionID.SKILL_GAP, text, True)
+
+
+@pytest.mark.parametrize(
+    "decision, text, asked",
+    [
+        (stayed(), "Yes, confirmed and more", False),            # no confirmation question
+        (stayed(), "Actually change the posting label", True),   # not a confirmation
+        (stayed(router_directive="next"), "yes and more", True),  # not a stay
+        (stayed(is_satisfied=False), "yes and more", True),       # user disagreed
+    ],
+)
+def test_no_reason_when_the_user_did_not_try_to_confirm(decision, text, asked):
+    assert unaccepted_confirmation(decision, SectionID.SKILL_GAP, text, asked) is None
