@@ -118,6 +118,8 @@ def test_requirements_do_not_repeat_a_resource():
 
 
 def test_retrieval_evaluation_meets_the_bar():
+    """ENFORCED GATE on the development set: hit@3 >= 0.95, MRR >= 0.9, every negative
+    case retrieves nothing."""
     report = evaluate(EVAL_CASES)
     assert report["cases"] >= 50
     assert report["hit@3"] >= 0.95, report["misses"]
@@ -126,7 +128,8 @@ def test_retrieval_evaluation_meets_the_bar():
 
 
 def test_held_out_postings_do_not_regress():
-    """Requirements copied from three real postings, labeled before the first run.
+    """DIAGNOSTIC set with regression floors, not a quality gate. Requirements copied
+    from three real postings, labeled before the first run.
     First run: hit@3 0.826, MRR 0.754, negatives 0.5. After fixing the slash
     boundary bug and requiring a shared skill tag: hit@3 0.826, MRR 0.754,
     negatives 0.833. These floors stop it getting worse; they are not a target."""
@@ -142,6 +145,7 @@ def test_held_out_postings_do_not_regress():
         "Build reliable retrieval pipelines for our search ranking service",
         "Fast data retrieval from internal archives",
         "Document retrieval and indexing",
+        "Experience building a retrieval pipeline",  # Moss's example, PR #15 review
     ],
 )
 def test_retrieval_on_its_own_is_not_rag(text):
