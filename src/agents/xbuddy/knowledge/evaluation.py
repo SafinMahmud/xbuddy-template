@@ -10,7 +10,14 @@ requirement is at most 2, so 3 is a fair ceiling):
   mrr        mean reciprocal rank of the first relevant resource
   negatives  share of negative cases that correctly retrieve nothing
 
-Run it:  cd src && python -m agents.xbuddy.knowledge.evaluation
+Two case files:
+  retrieval_eval.json          50 cases written alongside the skill vocabulary
+                               (development set; optimistic)
+  retrieval_eval_heldout.json  23 requirements copied from three real postings
+                               (Thumbtack, Asana, Insight), labeled before the
+                               retriever was run on them
+
+Run it:  cd src && python -m agents.xbuddy.knowledge.evaluation [cases.json]
 """
 
 from __future__ import annotations

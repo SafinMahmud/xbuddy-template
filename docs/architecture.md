@@ -77,20 +77,31 @@ prompts allow only what was retrieved.
 
 - **Library:** `src/agents/xbuddy/knowledge/learning_resources.json`. Each entry has
   skill tags, level, cost and format.
-- **Retrieval:** skill tags first (a fixed vocabulary that knows "k8s" is Kubernetes
-  and that "react quickly" is not React), then BM25 for wording the tags miss. No
-  embeddings, so no extra API calls, no quota, and nothing heavy to load on Render.
-  A requirement like "5 years of experience" retrieves nothing rather than something
-  irrelevant.
+- **Retrieval:** a resource is eligible only if it shares a skill tag with the query
+  (a fixed vocabulary that knows "k8s" is Kubernetes and that "react quickly" is not
+  React). BM25 then ranks the eligible ones. No embeddings, so no extra API calls,
+  no quota, and nothing heavy to load on Render. A requirement like "5 years of
+  experience" retrieves nothing rather than something irrelevant.
 - **Skill Gap:** the reply prompt gets one resource per skill named in the pasted
   posting, gaps first and skills the user already has last.
 - **Roadmap:** the prompt gets resources for the top requirements and must cite only
   those. `validate_roadmap` rejects any other link; the fallback roadmap lists the
   resources and strips links the summaries carried.
-- **Evaluation:** `tests/xbuddy/fixtures/retrieval_eval.json` holds 50 requirement-style
-  queries with the resources judged relevant, plus 8 that must retrieve nothing.
-  Run `cd src && python -m agents.xbuddy.knowledge.evaluation`. The test suite fails
-  if hit@3 drops below 0.95, MRR below 0.9, or any negative case retrieves something.
+- **Evaluation:** two labeled sets, run with
+  `cd src && python -m agents.xbuddy.knowledge.evaluation [cases.json]`.
+
+  | Set | Cases | hit@3 | MRR | Negatives correct |
+  | --- | --- | --- | --- | --- |
+  | Development (`retrieval_eval.json`, written with the vocabulary) | 50 + 8 | 1.0 | 0.99 | 8 of 8 |
+  | Held out (`retrieval_eval_heldout.json`, 3 real postings), first run | 23 + 6 | 0.83 | 0.75 | 3 of 6 |
+  | Held out, after two structural fixes | 23 + 6 | 0.83 | 0.75 | 5 of 6 |
+
+  The held-out run found a bug ("C#/.NET" was missed because a slash counted as part
+  of the word) and showed that letting a strong BM25 match through without a skill
+  tag returned wrong resources. Both were fixed without adding words from those
+  postings to the vocabulary. The remaining misses are vocabulary gaps ("AI coding
+  tools", "well-tested code", "distributed architectures"), which a new held-out set
+  should measure after they are added.
 - **Link check:** `cd src && python -m agents.xbuddy.knowledge.check_links` opens every
   library link and lists any that fail.
 

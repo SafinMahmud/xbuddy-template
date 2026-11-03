@@ -9,12 +9,15 @@ Retrieval runs in two steps, both deterministic and free to run:
   1. Skill tags. A fixed vocabulary of skills, each with the phrases that name it
      in a job posting ("k8s", "Kubernetes"). Tags found in the query are matched
      against each resource's tags. This is the strong signal.
-  2. BM25 over each resource's title, summary and tags, for wording the tag
-     vocabulary does not cover. It breaks ties and catches near misses.
+  2. BM25 over each resource's title, summary and tags. It only ranks the
+     resources that share a tag; it never adds one on its own.
 
-When the query names known skills, only resources tagged with one of them are
-returned. When it names none, BM25 alone must clear MIN_BM25. So a requirement like "5 years of experience" retrieves nothing
-rather than something irrelevant.
+Only a shared skill tag makes a resource eligible. So a requirement like "5 years
+of experience" or "bias to action" retrieves nothing rather than something
+irrelevant. An earlier version let a strong BM25 match through without a tag; on
+the held-out postings that returned an ML course for "quickly learning ... fast-paced"
+and a Power BI course for "Power Platform", so it was removed. A wrong resource in a
+roadmap is worse than none: with none, the model suggests a hands-on project.
 """
 
 from __future__ import annotations
@@ -32,8 +35,6 @@ from pydantic import BaseModel, Field
 LIBRARY_PATH = Path(__file__).with_name("learning_resources.json")
 
 TAG_WEIGHT = 2.0  # one shared skill tag outweighs any normalised BM25 score
-MIN_BM25 = 4.0  # raw BM25 needed when the query names no known skill
-MIN_TERMS = 2  # distinct query words a resource must contain when no skill is named
 BM25_K1 = 1.5
 BM25_B = 0.75
 _LEVEL_ORDER = {"beginner": 0, "intermediate": 1, "advanced": 2}
@@ -146,7 +147,7 @@ def _phrase_pattern(phrase: str) -> re.Pattern[str]:
     # A phrase is a literal unless it carries regex syntax (a lookahead or escaped
     # brackets), which a few ambiguous words need.
     body = phrase if ("(?" in phrase or "\\(" in phrase) else re.escape(phrase)
-    return re.compile(rf"(?<![\w.#+/-]){body}(?![\w#+/]|\.\w)", re.IGNORECASE)
+    return re.compile(rf"(?<![\w.#+-]){body}(?![\w#+]|\.\w)", re.IGNORECASE)
 
 
 _TAG_PATTERNS: dict[str, list[re.Pattern[str]]] = {
@@ -223,19 +224,17 @@ class _BM25:
         n = len(docs)
         self.idf = {t: math.log(1 + (n - f + 0.5) / (f + 0.5)) for t, f in df.items()}
 
-    def scores(self, query: list[str]) -> list[tuple[float, int]]:
-        """(score, number of distinct query terms found) for every document."""
+    def scores(self, query: list[str]) -> list[float]:
         terms = set(query)
         out = []
         for doc, length in zip(self.docs, self.lengths, strict=True):
-            s, found = 0.0, 0
+            s = 0.0
             for t in terms:
                 tf = doc.get(t, 0)
                 if tf:
-                    found += 1
                     norm = tf + BM25_K1 * (1 - BM25_B + BM25_B * length / self.avg)
                     s += self.idf[t] * tf * (BM25_K1 + 1) / norm
-            out.append((s, found))
+            out.append(s)
         return out
 
 
@@ -260,17 +259,14 @@ def retrieve(
     library = load_library()
     tags = detect_tags(query)
     terms = tokenize(query) + [w for t in tags for w in t.split("-")]
-    raw = _index().scores(terms) if terms else [(0.0, 0)] * len(library)
-    top = max(s for s, _ in raw) or 1.0
+    raw = _index().scores(terms) if terms else [0.0] * len(library)
+    top = max(raw) or 1.0
     hits = []
-    for resource, (bm25, found) in zip(library, raw, strict=True):
+    for resource, bm25 in zip(library, raw, strict=True):
         if exclude and resource.id in exclude:
             continue
         shared = tuple(sorted(tags & set(resource.skills)))
-        # A query that names known skills only retrieves resources for those skills.
-        # Without any named skill, BM25 alone must be confident and match at least
-        # MIN_TERMS different words, so one stray word ("go", "react") is not enough.
-        if (tags and not shared) or (not tags and (bm25 < MIN_BM25 or found < MIN_TERMS)):
+        if not shared:  # only a named skill makes a resource eligible
             continue
         # Prefer resources focused on the skill: share of the resource's tags matched.
         focus = len(shared) / len(resource.skills) if shared else 0.0

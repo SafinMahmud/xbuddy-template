@@ -33,9 +33,9 @@ from agents.xbuddy.roadmap import (
     validate_roadmap,
 )
 
-EVAL_CASES = json.loads(
-    (Path(__file__).parent / "fixtures" / "retrieval_eval.json").read_text("utf-8")
-)
+FIXTURES = Path(__file__).parent / "fixtures"
+EVAL_CASES = json.loads((FIXTURES / "retrieval_eval.json").read_text("utf-8"))
+HELDOUT_CASES = json.loads((FIXTURES / "retrieval_eval_heldout.json").read_text("utf-8"))
 
 
 # --- the library -----------------------------------------------------------------------------
@@ -69,6 +69,8 @@ def test_every_skill_in_the_vocabulary_has_a_resource():
         ("PostgreSQL or MySQL", {"postgresql", "sql"}),
         ("CI/CD with GitHub Actions", {"ci-cd", "git"}),
         ("Go (Golang)", {"go"}),
+        ("Strong C#/.NET skills", {"csharp"}),
+        ("Postgres/DynamoDB", {"postgresql"}),
     ],
 )
 def test_skill_tags_are_detected(text, expected):
@@ -121,6 +123,22 @@ def test_retrieval_evaluation_meets_the_bar():
     assert report["hit@3"] >= 0.95, report["misses"]
     assert report["mrr"] >= 0.9, report["misses"]
     assert report["negatives"] == 1.0, report["false_hits"]
+
+
+def test_held_out_postings_do_not_regress():
+    """Requirements copied from three real postings, labeled before the first run.
+    First run: hit@3 0.826, MRR 0.754, negatives 0.5. After fixing the slash
+    boundary bug and requiring a shared skill tag: hit@3 0.826, MRR 0.754,
+    negatives 0.833. These floors stop it getting worse; they are not a target."""
+    report = evaluate(HELDOUT_CASES)
+    assert report["cases"] == 23
+    assert report["hit@3"] >= 0.8, report["misses"]
+    assert report["negatives"] >= 0.8, report["false_hits"]
+
+
+def test_a_strong_keyword_match_without_a_skill_is_not_returned():
+    assert retrieve("quickly learning in ambiguous, fast-paced environments") == []
+    assert retrieve("Microsoft Power Platform (Power Apps, Power Automate)") == []
 
 
 # --- links -----------------------------------------------------------------------------------

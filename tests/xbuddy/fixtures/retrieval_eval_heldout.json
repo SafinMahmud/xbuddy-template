@@ -1,0 +1,36 @@
+{
+  "_note": "Held-out set. Requirements copied word for word from three real postings (Thumbtack SWE ML Infrastructure, Asana SWE AI, Insight AI Engineer). Relevant resources were labeled before the retriever was run on them, and the vocabulary was not tuned on this file.",
+  "positive": [
+    {"source": "Thumbtack", "query": "Strong fundamentals in data structures, algorithms, and software design.", "relevant": ["mit-6006", "neetcode", "tech-interview-handbook", "system-design-primer"]},
+    {"source": "Thumbtack", "query": "Proficiency in at least one major programming language, and the ability to work across multiple languages. Our primary stack includes Go and Python.", "relevant": ["tour-of-go", "python-tutorial"]},
+    {"source": "Thumbtack", "query": "Experience working with relational or NoSQL databases such as Postgres or DynamoDB.", "relevant": ["postgres-tutorial", "sqlbolt", "select-star-sql"]},
+    {"source": "Thumbtack", "query": "traditional ML model training and serving systems, feature and data workflows", "relevant": ["made-with-ml", "mlops-zoomcamp", "mlflow-docs"]},
+    {"source": "Thumbtack", "query": "CI/CD, orchestration, deployment, and evaluation tooling", "relevant": ["github-actions-docs", "airflow-tutorial", "mlops-zoomcamp", "made-with-ml"]},
+    {"source": "Thumbtack", "query": "Demonstrated ability to use AI coding tools in day-to-day workflows and validate, critique, and refine AI-generated output", "relevant": ["claude-prompt-engineering"]},
+    {"source": "Thumbtack", "query": "Partner with senior engineers to evaluate next-generation AI infrastructure frameworks and tools", "relevant": ["dlai-short-courses", "hf-learn"]},
+    {"source": "Asana", "query": "evaluating trade-offs between latency, cost, and reliability when integrating modern foundation models, prompt pipelines, and workflow orchestration logic", "relevant": ["claude-prompt-engineering", "dlai-short-courses", "langgraph-academy", "openai-cookbook"]},
+    {"source": "Asana", "query": "monitor production pipelines, participate in team on-call rotations, and diagnose complex bugs across asynchronous or distributed systems", "relevant": ["opentelemetry-docs", "ddia", "system-design-primer"]},
+    {"source": "Asana", "query": "Write clean, modular, and well-tested code across our stack", "relevant": ["pytest-getting-started", "made-with-ml"]},
+    {"source": "Asana", "query": "Strong command of software design fundamentals, testing practices, and data structures", "relevant": ["mit-6006", "neetcode", "pytest-getting-started", "system-design-primer"]},
+    {"source": "Asana", "query": "experience or curiosity in working with LLMs, prompt pipelines, vector databases, or agentic frameworks", "relevant": ["dlai-short-courses", "openai-cookbook", "langgraph-academy", "hf-learn", "pgvector"]},
+    {"source": "Asana", "query": "2+ years of professional software engineering experience shipping production code in modern distributed architectures, web services, or data-intensive systems.", "relevant": ["ddia", "system-design-primer"]},
+    {"source": "Insight", "query": "Hands-on experience shipping LLM-powered features to production: tool/function calling, structured outputs, multi-step or multi-agent workflows, and the failure modes that come with them.", "relevant": ["langgraph-academy", "dlai-short-courses", "hf-learn", "openai-cookbook"]},
+    {"source": "Insight", "query": "Experience building retrieval-augmented generation pipelines, including chunking, embeddings, hybrid search, and relevance tuning with Azure AI Search or a comparable vector store", "relevant": ["dlai-short-courses", "openai-cookbook", "pgvector"]},
+    {"source": "Insight", "query": "Practical experience with evaluation and safety for LLM applications: building eval sets, measuring quality and regressions, and implementing guardrails, content filtering, and prompt-injection defenses.", "relevant": ["dlai-short-courses", "openai-cookbook"]},
+    {"source": "Insight", "query": "Strong C#/.NET skills building production APIs and services, with the ability to work in Python where the AI tooling demands it.", "relevant": ["csharp-docs", "ms-api-design"]},
+    {"source": "Insight", "query": "Working knowledge of React and TypeScript, enough to build and integrate front-end experiences that consume agentic back ends.", "relevant": ["react-learn", "ts-handbook"]},
+    {"source": "Insight", "query": "Experience delivering on Microsoft Azure (App Service or Functions, Storage, Key Vault, Application Insights or equivalent monitoring)", "relevant": ["azure-fundamentals"]},
+    {"source": "Insight", "query": "Experience designing and integrating tools and connectors for agents, such as MCP servers, custom tool APIs, or enterprise system integrations.", "relevant": ["dlai-short-courses", "hf-learn", "ms-api-design"]},
+    {"source": "Insight", "query": "Experience with Microsoft Agent Framework (the successor to Semantic Kernel and AutoGen) or comparable frameworks such as LangGraph, the OpenAI Agents SDK, or the Claude Agent SDK.", "relevant": ["langgraph-academy", "hf-learn", "dlai-short-courses"]},
+    {"source": "Insight", "query": "Experience with observability and tracing for LLM applications (OpenTelemetry, Foundry tracing and evaluations, or similar).", "relevant": ["opentelemetry-docs"]},
+    {"source": "Insight", "query": "Relevant Microsoft certifications such as AI-103 (Azure AI Apps and Agents Developer Associate) or AI-200 (Azure AI Cloud Developer Associate); prior AI-102 or AZ-204 also welcome.", "relevant": ["azure-fundamentals"]}
+  ],
+  "negative": [
+    "At least 2 years of professional software engineering experience.",
+    "You operate with a bias to action, quickly learning what is needed and taking decisive steps to move work forward in ambiguous, fast-paced environments.",
+    "Experience collaborating closely with Product Managers, Designers, Data Scientists, and fellow engineers while communicating progress clearly and surfacing blockers early.",
+    "6+ years of professional software development, including 2+ years leading technical delivery on client-facing or cross-functional projects.",
+    "Comfort operating as a consultant: scoping work with clients, communicating trade-offs to non-technical stakeholders, and adapting to different codebases and organizations.",
+    "Exposure to Microsoft Power Platform (Copilot Studio, Power Apps, Power Automate) and integrating custom AI services with it."
+  ]
+}
