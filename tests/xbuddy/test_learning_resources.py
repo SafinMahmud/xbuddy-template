@@ -170,6 +170,13 @@ def test_skill_gap_block_puts_known_skills_last():
     gaps = [t for t in tags if t not in {"python", "kubernetes"}]
     assert gaps and tags[: len(gaps)] == gaps  # skills the user has come after the gaps
     assert "never write any other link" in block
+    # Live run (Nov 3): the reply named a library course without its link and said it
+    # "integrates with Azure services". The prompt now carries each resource's summary
+    # and requires the link, so the model has the real description to work from.
+    assert "ALWAYS write it as a Markdown link" in block
+    assert "never claim anything else about it" in block
+    langgraph = next(line for line in block.splitlines() if "intro-to-langgraph" in line)
+    assert "What it covers: Build stateful agents with LangGraph" in langgraph
 
 
 @pytest.mark.asyncio

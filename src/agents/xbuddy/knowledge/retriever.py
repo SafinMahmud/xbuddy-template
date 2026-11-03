@@ -171,7 +171,7 @@ class Resource(BaseModel):
     def as_line(self) -> str:
         return (
             f"[{self.title}]({self.url}) ({self.provider}; {self.format}; {self.level}; "
-            f"{self.cost})"
+            f"{self.cost}). What it covers: {self.summary}"
         )
 
 
@@ -307,9 +307,12 @@ def resources_for_skills(
 SKILL_GAP_INSTRUCTION = (
     "LEARNING RESOURCES (retrieved from JobBuddy's curated library for the skills named "
     "in the pasted posting; skills the user already has are listed last). When you "
-    "suggest a learning action, choose from this list and give its title and link. "
-    "Never name a course, book or certification that is not listed, and never write any "
-    "other link. If nothing listed fits a gap, suggest a small hands-on project instead."
+    "suggest a learning action, choose from this list and ALWAYS write it as a Markdown "
+    "link with the exact URL given, for example [Title](https://...). Describe a resource "
+    "only with what its 'What it covers' line says; never claim anything else about it "
+    "(such as what it integrates with). Never name a course, book or certification that "
+    "is not listed, and never write any other link. If nothing listed fits a gap, "
+    "suggest a small hands-on project instead."
 )
 
 

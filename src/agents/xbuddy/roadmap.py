@@ -56,7 +56,7 @@ Rules:
 - Write the checklist as Markdown checkboxes, one per line: "- [ ] ..."
 - In "Learning plan", recommend courses, docs and certifications ONLY from the
   LEARNING RESOURCES list below, as Markdown links with the exact URL given. Tie
-  each one to the gap it closes. If no listed resource fits a gap, suggest a small
+  each one to the gap it closes, and describe it only with its "What it covers" line. If no listed resource fits a gap, suggest a small
   hands-on project instead. Never add any other link, and never name a course or
   certification that is not on the list.
 - No placeholders such as [TBD]. No salary or pay figures.
